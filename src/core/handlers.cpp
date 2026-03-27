@@ -19,7 +19,6 @@ namespace {
 using SignalValue = anolis::deviceprovider::v1::SignalValue;
 using Status = anolis::deviceprovider::v1::Status;
 
-constexpr char kSignalPhValue[] = "ph.value";
 constexpr int kMinSamplePeriodMs = 50;
 constexpr int kMinStaleAfterMs = 500;
 
@@ -95,37 +94,56 @@ const runtime::ActiveDevice *find_device(const runtime::RuntimeState &state,
     return &(*it);
 }
 
-bool has_signal(const runtime::ActiveDevice &device, const std::string &signal_id) {
-    for(const auto &signal : device.capabilities.signals()) {
-        if(signal.signal_id() == signal_id) {
-            return true;
+int find_signal_index(const runtime::ActiveDevice &device, const std::string &signal_id) {
+    for(int i = 0; i < device.capabilities.signals_size(); ++i) {
+        if(device.capabilities.signals(i).signal_id() == signal_id) {
+            return i;
         }
     }
-    return false;
+    return -1;
 }
 
-void populate_ph_signal_value(const runtime::RuntimeState &state,
-                              const runtime::ActiveDevice &device,
-                              SignalValue *value) {
+void populate_signal_value(const runtime::RuntimeState &state,
+                           const runtime::ActiveDevice &device,
+                           size_t signal_index,
+                           SignalValue *value) {
     if(value == nullptr) {
         return;
     }
 
-    value->set_signal_id(kSignalPhValue);
+    if(signal_index >= static_cast<size_t>(device.capabilities.signals_size())) {
+        return;
+    }
+
+    const auto &signal_spec = device.capabilities.signals(static_cast<int>(signal_index));
+    value->set_signal_id(signal_spec.signal_id());
     value->mutable_value()->set_type(anolis::deviceprovider::v1::VALUE_TYPE_DOUBLE);
-    value->mutable_value()->set_double_value(device.sample.value);
     *value->mutable_timestamp() = to_proto_timestamp(device.sample.sampled_at);
+
+    const runtime::SignalSample *signal_sample = nullptr;
+    if(signal_index < device.sample.signals.size()) {
+        signal_sample = &device.sample.signals[signal_index];
+    }
+    if(signal_sample != nullptr && signal_sample->has_value) {
+        value->mutable_value()->set_double_value(signal_sample->value);
+    }
 
     const auto now = std::chrono::system_clock::now();
     const auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         now - device.sample.sampled_at);
     const auto stale_ms = stale_after_ms(state);
 
-    SignalValue::Quality quality = SignalValue::QUALITY_OK;
-    if(!device.sample.last_read_ok) {
+    SignalValue::Quality quality = SignalValue::QUALITY_UNKNOWN;
+    if(signal_sample == nullptr) {
+        quality = SignalValue::QUALITY_UNKNOWN;
+    } else if(!signal_sample->available) {
+        quality = SignalValue::QUALITY_UNKNOWN;
+    } else if(!device.sample.last_read_ok) {
         quality = SignalValue::QUALITY_FAULT;
     } else if(age_ms.count() > stale_ms) {
         quality = SignalValue::QUALITY_STALE;
+    } else if(signal_sample->has_value) {
+        quality = SignalValue::QUALITY_OK;
     }
     value->set_quality(quality);
 
@@ -137,6 +155,10 @@ void populate_ph_signal_value(const runtime::RuntimeState &state,
         std::to_string(device.sample.failure_count);
     if(!device.sample.last_error.empty()) {
         (*value->mutable_metadata())["last_error"] = device.sample.last_error;
+    }
+    if(signal_sample != nullptr && !signal_sample->available) {
+        (*value->mutable_metadata())["unavailable"] = "true";
+        (*value->mutable_metadata())["unavailable_reason"] = signal_sample->unavailable_reason;
     }
 }
 
@@ -157,9 +179,9 @@ void handle_hello(const HelloRequest &request, Response &response) {
     (*hello->mutable_metadata())["max_frame_bytes"] = std::to_string(transport::kMaxFrameBytes);
     (*hello->mutable_metadata())["supports_wait_ready"] = "true";
     (*hello->mutable_metadata())["discovery_mode"] = "manual";
-    (*hello->mutable_metadata())["phase"] = "3";
+    (*hello->mutable_metadata())["phase"] = "4";
     (*hello->mutable_metadata())["i2c_execution_model"] = "single_executor";
-    (*hello->mutable_metadata())["vertical_slice"] = "ph";
+    (*hello->mutable_metadata())["coverage"] = "all_families";
     set_status_ok(response);
 }
 
@@ -216,6 +238,7 @@ void handle_read_signals(const ReadSignalsRequest &request, Response &response) 
     }
 
     std::vector<std::string> requested_signal_ids;
+    std::vector<size_t> requested_signal_indexes;
     if(request.signal_ids_size() == 0) {
         for(const auto &signal : device->capabilities.signals()) {
             requested_signal_ids.push_back(signal.signal_id());
@@ -227,11 +250,13 @@ void handle_read_signals(const ReadSignalsRequest &request, Response &response) 
     }
 
     for(const std::string &signal_id : requested_signal_ids) {
-        if(!has_signal(*device, signal_id)) {
+        const int index = find_signal_index(*device, signal_id);
+        if(index < 0) {
             set_status(response, Status::CODE_NOT_FOUND,
                        "unknown signal_id '" + signal_id + "'");
             return;
         }
+        requested_signal_indexes.push_back(static_cast<size_t>(index));
     }
 
     bool needs_refresh = !device->sample.has_sample;
@@ -255,7 +280,7 @@ void handle_read_signals(const ReadSignalsRequest &request, Response &response) 
     }
 
     if(needs_refresh) {
-        const i2c::Status refresh_status = runtime::refresh_ph_sample(request.device_id());
+        const i2c::Status refresh_status = runtime::refresh_device_sample(request.device_id());
         if(!refresh_status.is_ok()) {
             logging::warning("read_signals refresh failed for '" + request.device_id() +
                              "': " + refresh_status.message);
@@ -278,7 +303,7 @@ void handle_read_signals(const ReadSignalsRequest &request, Response &response) 
     }
 
     if(!device->sample.has_sample) {
-        set_status(response, Status::CODE_UNAVAILABLE, "no pH sample available");
+        set_status(response, Status::CODE_UNAVAILABLE, "no sample available");
         return;
     }
     if(has_min_timestamp && device->sample.sampled_at < min_timestamp) {
@@ -290,18 +315,15 @@ void handle_read_signals(const ReadSignalsRequest &request, Response &response) 
 
     auto *out = response.mutable_read_signals();
     out->set_device_id(request.device_id());
-    for(const std::string &signal_id : requested_signal_ids) {
-        if(signal_id != kSignalPhValue) {
-            continue;
-        }
-        populate_ph_signal_value(state, *device, out->add_values());
+    for(const size_t signal_index : requested_signal_indexes) {
+        populate_signal_value(state, *device, signal_index, out->add_values());
     }
 
     set_status_ok(response);
 }
 
 void handle_call(const CallRequest &, Response &response) {
-    set_status(response, Status::CODE_UNIMPLEMENTED, "call is not implemented in phase 3");
+    set_status(response, Status::CODE_UNIMPLEMENTED, "call is not implemented in phase 4");
 }
 
 void handle_get_health(const GetHealthRequest &, Response &response) {

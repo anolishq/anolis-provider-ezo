@@ -15,8 +15,13 @@
 
 extern "C" {
 #include "ezo_control.h"
+#include "ezo_do.h"
+#include "ezo_ec.h"
+#include "ezo_hum.h"
+#include "ezo_orp.h"
 #include "ezo_ph.h"
 #include "ezo_product.h"
+#include "ezo_rtd.h"
 }
 
 namespace anolis_provider_ezo::runtime {
@@ -28,7 +33,43 @@ std::shared_ptr<i2c::BusExecutor> g_executor;
 
 constexpr int kMinSamplePeriodMs = 50;
 constexpr int kMinStaleAfterMs = 500;
-constexpr char kSignalPhValue[] = "ph.value";
+
+struct SignalDefinition {
+    const char *signal_id;
+    const char *name;
+    const char *description;
+    const char *unit;
+};
+
+constexpr SignalDefinition kPhSignals[] = {
+    {"ph.value", "pH", "Latest pH measurement", "pH"},
+};
+
+constexpr SignalDefinition kOrpSignals[] = {
+    {"orp.millivolts", "ORP", "Latest ORP measurement", "mV"},
+};
+
+constexpr SignalDefinition kEcSignals[] = {
+    {"ec.conductivity_us_cm", "EC Conductivity", "Electrical conductivity", "uS/cm"},
+    {"ec.tds_ppm", "EC TDS", "Total dissolved solids", "ppm"},
+    {"ec.salinity_psu", "EC Salinity", "Salinity", "psu"},
+    {"ec.specific_gravity", "EC Specific Gravity", "Specific gravity", "sg"},
+};
+
+constexpr SignalDefinition kDoSignals[] = {
+    {"do.mg_l", "Dissolved Oxygen (mg/L)", "Dissolved oxygen concentration", "mg/L"},
+    {"do.saturation_pct", "Dissolved Oxygen (%)", "Dissolved oxygen percent saturation", "%"},
+};
+
+constexpr SignalDefinition kRtdSignals[] = {
+    {"rtd.temperature_c", "RTD Temperature", "Temperature reading", "C"},
+};
+
+constexpr SignalDefinition kHumSignals[] = {
+    {"hum.relative_humidity_pct", "Humidity", "Relative humidity", "%"},
+    {"hum.temperature_c", "Air Temperature", "Ambient air temperature", "C"},
+    {"hum.dew_point_c", "Dew Point", "Dew point temperature", "C"},
+};
 
 bool has_prefix(const std::string &value, const std::string &prefix) {
     return value.rfind(prefix, 0) == 0;
@@ -83,8 +124,52 @@ const char *type_id_for_device(EzoDeviceType type) {
     return "sensor.ezo.unknown";
 }
 
+const SignalDefinition *signal_definitions_for_type(EzoDeviceType type,
+                                                    size_t *count_out) {
+    const SignalDefinition *defs = nullptr;
+    size_t count = 0;
+
+    switch(type) {
+    case EzoDeviceType::Ph:
+        defs = kPhSignals;
+        count = sizeof(kPhSignals) / sizeof(kPhSignals[0]);
+        break;
+    case EzoDeviceType::Orp:
+        defs = kOrpSignals;
+        count = sizeof(kOrpSignals) / sizeof(kOrpSignals[0]);
+        break;
+    case EzoDeviceType::Ec:
+        defs = kEcSignals;
+        count = sizeof(kEcSignals) / sizeof(kEcSignals[0]);
+        break;
+    case EzoDeviceType::Do:
+        defs = kDoSignals;
+        count = sizeof(kDoSignals) / sizeof(kDoSignals[0]);
+        break;
+    case EzoDeviceType::Rtd:
+        defs = kRtdSignals;
+        count = sizeof(kRtdSignals) / sizeof(kRtdSignals[0]);
+        break;
+    case EzoDeviceType::Hum:
+        defs = kHumSignals;
+        count = sizeof(kHumSignals) / sizeof(kHumSignals[0]);
+        break;
+    }
+
+    if(count_out != nullptr) {
+        *count_out = count;
+    }
+    return defs;
+}
+
 i2c::Status make_status(i2c::StatusCode code, const std::string &message) {
     return i2c::Status{code, message};
+}
+
+void wait_for_timing_hint(const ezo_timing_hint_t &hint) {
+    if(hint.wait_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(hint.wait_ms));
+    }
 }
 
 i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &context) {
@@ -136,16 +221,21 @@ std::vector<ActiveDevice>::iterator find_active_device_unlocked(
         [&device_id](const ActiveDevice &device) { return device.spec.id == device_id; });
 }
 
-anolis::deviceprovider::v1::CapabilitySet build_ph_capabilities(const ProviderConfig &config) {
+anolis::deviceprovider::v1::CapabilitySet build_capabilities(const ProviderConfig &config,
+                                                             EzoDeviceType type) {
     anolis::deviceprovider::v1::CapabilitySet capabilities;
-    auto *signal = capabilities.add_signals();
-    signal->set_signal_id(kSignalPhValue);
-    signal->set_name("pH");
-    signal->set_description("Latest pH measurement");
-    signal->set_value_type(anolis::deviceprovider::v1::VALUE_TYPE_DOUBLE);
-    signal->set_unit("pH");
-    signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_period_ms(config)));
-    signal->set_stale_after_ms(static_cast<uint32_t>(stale_after_ms(config)));
+    size_t def_count = 0;
+    const SignalDefinition *defs = signal_definitions_for_type(type, &def_count);
+    for(size_t i = 0; i < def_count; ++i) {
+        auto *signal = capabilities.add_signals();
+        signal->set_signal_id(defs[i].signal_id);
+        signal->set_name(defs[i].name);
+        signal->set_description(defs[i].description);
+        signal->set_value_type(anolis::deviceprovider::v1::VALUE_TYPE_DOUBLE);
+        signal->set_unit(defs[i].unit);
+        signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_period_ms(config)));
+        signal->set_stale_after_ms(static_cast<uint32_t>(stale_after_ms(config)));
+    }
     return capabilities;
 }
 
@@ -255,9 +345,272 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor,
     return status;
 }
 
+void set_signal_value(std::vector<SignalSample> &signals,
+                      size_t index,
+                      double value) {
+    if(index >= signals.size()) {
+        return;
+    }
+    signals[index].available = true;
+    signals[index].has_value = true;
+    signals[index].value = value;
+    signals[index].unavailable_reason.clear();
+}
+
+void set_signal_unavailable(std::vector<SignalSample> &signals,
+                            size_t index,
+                            const std::string &reason) {
+    if(index >= signals.size()) {
+        return;
+    }
+    signals[index].available = false;
+    signals[index].has_value = false;
+    signals[index].value = 0.0;
+    signals[index].unavailable_reason = reason;
+}
+
+void initialize_signal_samples(EzoDeviceType type,
+                               std::vector<SignalSample> *signals_out) {
+    if(signals_out == nullptr) {
+        return;
+    }
+    size_t signal_count = 0;
+    (void)signal_definitions_for_type(type, &signal_count);
+    signals_out->assign(signal_count, SignalSample{});
+}
+
+i2c::Status read_sample_from_bound_device(ezo_i2c_device_t *device,
+                                          const DeviceSpec &spec,
+                                          std::vector<SignalSample> *signals_out) {
+    if(device == nullptr || signals_out == nullptr) {
+        return make_status(i2c::StatusCode::InvalidArgument,
+                           "device sample read requires valid pointers");
+    }
+
+    initialize_signal_samples(spec.type, signals_out);
+
+    switch(spec.type) {
+    case EzoDeviceType::Ph: {
+        ezo_timing_hint_t hint{};
+        ezo_result_t result = ezo_ph_send_read_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send pH read");
+        }
+        wait_for_timing_hint(hint);
+        ezo_ph_reading_t reading{};
+        result = ezo_ph_read_response_i2c(device, &reading);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read pH response");
+        }
+        set_signal_value(*signals_out, 0, reading.ph);
+        return i2c::Status::ok();
+    }
+    case EzoDeviceType::Orp: {
+        ezo_timing_hint_t hint{};
+        ezo_result_t result = ezo_orp_send_read_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send ORP read");
+        }
+        wait_for_timing_hint(hint);
+        ezo_orp_reading_t reading{};
+        result = ezo_orp_read_response_i2c(device, &reading);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read ORP response");
+        }
+        set_signal_value(*signals_out, 0, reading.millivolts);
+        return i2c::Status::ok();
+    }
+    case EzoDeviceType::Rtd: {
+        ezo_timing_hint_t hint{};
+        ezo_result_t result = ezo_rtd_send_read_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send RTD read");
+        }
+        wait_for_timing_hint(hint);
+        ezo_rtd_reading_t reading{};
+        result = ezo_rtd_read_response_i2c(device, EZO_RTD_SCALE_CELSIUS, &reading);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read RTD response");
+        }
+        set_signal_value(*signals_out, 0, reading.temperature);
+        return i2c::Status::ok();
+    }
+    case EzoDeviceType::Ec: {
+        ezo_timing_hint_t hint{};
+        ezo_result_t result = ezo_ec_send_output_query_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send EC output query");
+        }
+        wait_for_timing_hint(hint);
+        ezo_ec_output_config_t output_config{};
+        result = ezo_ec_read_output_config_i2c(device, &output_config);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read EC output query");
+        }
+
+        hint = ezo_timing_hint_t{};
+        result = ezo_ec_send_read_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send EC read");
+        }
+        wait_for_timing_hint(hint);
+
+        ezo_ec_reading_t reading{};
+        result = ezo_ec_read_response_i2c(device, output_config.enabled_mask, &reading);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read EC response");
+        }
+
+        if((reading.present_mask & EZO_EC_OUTPUT_CONDUCTIVITY) != 0) {
+            set_signal_value(*signals_out, 0, reading.conductivity_us_cm);
+        } else {
+            set_signal_unavailable(*signals_out, 0, "conductivity output disabled on device");
+        }
+        if((reading.present_mask & EZO_EC_OUTPUT_TOTAL_DISSOLVED_SOLIDS) != 0) {
+            set_signal_value(*signals_out, 1, reading.total_dissolved_solids_ppm);
+        } else {
+            set_signal_unavailable(*signals_out, 1, "tds output disabled on device");
+        }
+        if((reading.present_mask & EZO_EC_OUTPUT_SALINITY) != 0) {
+            set_signal_value(*signals_out, 2, reading.salinity_ppt);
+        } else {
+            set_signal_unavailable(*signals_out, 2, "salinity output disabled on device");
+        }
+        if((reading.present_mask & EZO_EC_OUTPUT_SPECIFIC_GRAVITY) != 0) {
+            set_signal_value(*signals_out, 3, reading.specific_gravity);
+        } else {
+            set_signal_unavailable(*signals_out, 3, "specific gravity output disabled on device");
+        }
+        return i2c::Status::ok();
+    }
+    case EzoDeviceType::Do: {
+        ezo_timing_hint_t hint{};
+        ezo_result_t result = ezo_do_send_output_query_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send DO output query");
+        }
+        wait_for_timing_hint(hint);
+        ezo_do_output_config_t output_config{};
+        result = ezo_do_read_output_config_i2c(device, &output_config);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read DO output query");
+        }
+
+        hint = ezo_timing_hint_t{};
+        result = ezo_do_send_read_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send DO read");
+        }
+        wait_for_timing_hint(hint);
+
+        ezo_do_reading_t reading{};
+        result = ezo_do_read_response_i2c(device, output_config.enabled_mask, &reading);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read DO response");
+        }
+
+        if((reading.present_mask & EZO_DO_OUTPUT_MG_L) != 0) {
+            set_signal_value(*signals_out, 0, reading.milligrams_per_liter);
+        } else {
+            set_signal_unavailable(*signals_out, 0, "mg/l output disabled on device");
+        }
+        if((reading.present_mask & EZO_DO_OUTPUT_PERCENT_SATURATION) != 0) {
+            set_signal_value(*signals_out, 1, reading.percent_saturation);
+        } else {
+            set_signal_unavailable(*signals_out, 1, "saturation output disabled on device");
+        }
+        return i2c::Status::ok();
+    }
+    case EzoDeviceType::Hum: {
+        ezo_timing_hint_t hint{};
+        ezo_result_t result = ezo_hum_send_output_query_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send HUM output query");
+        }
+        wait_for_timing_hint(hint);
+        ezo_hum_output_config_t output_config{};
+        result = ezo_hum_read_output_config_i2c(device, &output_config);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read HUM output query");
+        }
+
+        hint = ezo_timing_hint_t{};
+        result = ezo_hum_send_read_i2c(device, &hint);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "send HUM read");
+        }
+        wait_for_timing_hint(hint);
+
+        ezo_hum_reading_t reading{};
+        result = ezo_hum_read_response_i2c(device, output_config.enabled_mask, &reading);
+        if(result != EZO_OK) {
+            return status_from_ezo_result(result, "read HUM response");
+        }
+
+        if((reading.present_mask & EZO_HUM_OUTPUT_HUMIDITY) != 0) {
+            set_signal_value(*signals_out, 0, reading.relative_humidity_percent);
+        } else {
+            set_signal_unavailable(*signals_out, 0, "humidity output disabled on device");
+        }
+        if((reading.present_mask & EZO_HUM_OUTPUT_AIR_TEMPERATURE) != 0) {
+            set_signal_value(*signals_out, 1, reading.air_temperature_c);
+        } else {
+            set_signal_unavailable(*signals_out, 1, "air temperature output disabled on device");
+        }
+        if((reading.present_mask & EZO_HUM_OUTPUT_DEW_POINT) != 0) {
+            set_signal_value(*signals_out, 2, reading.dew_point_c);
+        } else {
+            set_signal_unavailable(*signals_out, 2, "dew point output disabled on device");
+        }
+        return i2c::Status::ok();
+    }
+    }
+
+    return make_status(i2c::StatusCode::Internal, "unsupported device type in sample read");
+}
+
+void build_mock_sample(const DeviceSpec &spec,
+                       uint64_t sequence,
+                       std::vector<SignalSample> *signals_out) {
+    initialize_signal_samples(spec.type, signals_out);
+    if(signals_out == nullptr) {
+        return;
+    }
+
+    const double base = static_cast<double>((spec.address % 17) + 1) * 0.1;
+    const double delta = static_cast<double>(sequence % 25) * 0.01;
+
+    switch(spec.type) {
+    case EzoDeviceType::Ph:
+        set_signal_value(*signals_out, 0, 6.5 + base + delta);
+        break;
+    case EzoDeviceType::Orp:
+        set_signal_value(*signals_out, 0, 250.0 + (base * 10.0) + (delta * 100.0));
+        break;
+    case EzoDeviceType::Rtd:
+        set_signal_value(*signals_out, 0, 20.0 + base + delta);
+        break;
+    case EzoDeviceType::Ec:
+        set_signal_value(*signals_out, 0, 700.0 + (base * 100.0) + (delta * 100.0));
+        set_signal_value(*signals_out, 1, 350.0 + (base * 50.0) + (delta * 80.0));
+        set_signal_unavailable(*signals_out, 2, "salinity output disabled on device");
+        set_signal_unavailable(*signals_out, 3, "specific gravity output disabled on device");
+        break;
+    case EzoDeviceType::Do:
+        set_signal_value(*signals_out, 0, 7.0 + base + delta);
+        set_signal_unavailable(*signals_out, 1, "saturation output disabled on device");
+        break;
+    case EzoDeviceType::Hum:
+        set_signal_value(*signals_out, 0, 45.0 + (base * 5.0) + (delta * 10.0));
+        set_signal_value(*signals_out, 1, 22.0 + base + delta);
+        set_signal_unavailable(*signals_out, 2, "dew point output disabled on device");
+        break;
+    }
+}
+
 std::string build_startup_message(const RuntimeState &state) {
     std::ostringstream out;
-    out << "phase3 startup complete: active=" << state.active_devices.size()
+    out << "phase4 startup complete: active=" << state.active_devices.size()
         << ", excluded=" << state.excluded_devices.size()
         << ", configured=" << state.config.devices.size();
     if(!state.i2c_status_message.empty()) {
@@ -301,7 +654,7 @@ void initialize(const ProviderConfig &config) {
     state.i2c_status_message = start_status.message;
     state.i2c_metrics = executor->snapshot_metrics();
     if(!start_status.is_ok()) {
-        state.startup_message = "phase3 startup failed to initialize I2C executor: " +
+        state.startup_message = "phase4 startup failed to initialize I2C executor: " +
                                 start_status.message;
         std::lock_guard<std::mutex> lock(g_mutex);
         g_state = std::move(state);
@@ -310,12 +663,6 @@ void initialize(const ProviderConfig &config) {
 
     const bool mock_mode = is_mock_mode(config);
     for(const DeviceSpec &spec : config.devices) {
-        if(spec.type != EzoDeviceType::Ph) {
-            state.excluded_devices.push_back(
-                ExcludedDevice{spec, "phase3 supports only devices[].type=ph"});
-            continue;
-        }
-
         ezo_device_info_t info{};
         i2c::Status probe_status = i2c::Status::ok();
         if(mock_mode) {
@@ -329,23 +676,27 @@ void initialize(const ProviderConfig &config) {
             continue;
         }
 
-        if(info.product_id != EZO_PRODUCT_PH) {
+        const ezo_product_id_t expected_product = expected_product_for_type(spec.type);
+        if(info.product_id != expected_product) {
             std::string actual = "unknown";
             if(const ezo_product_metadata_t *meta = ezo_product_get_metadata(info.product_id)) {
                 actual = meta->family_name;
             }
 
+            std::string expected = to_string(spec.type);
             state.excluded_devices.push_back(
-                ExcludedDevice{spec, "type mismatch: configured ph, detected " + actual});
+                ExcludedDevice{spec, "type mismatch: configured " + expected + ", detected " +
+                                         actual});
             continue;
         }
 
         ActiveDevice device;
         device.spec = spec;
         device.descriptor = build_descriptor(config, spec);
-        device.capabilities = build_ph_capabilities(config);
+        device.capabilities = build_capabilities(config, spec.type);
         device.startup_product_code = info.product_code;
         device.startup_firmware_version = info.firmware_version;
+        device.sample.signals.resize(static_cast<size_t>(device.capabilities.signals_size()));
         (*device.descriptor.mutable_tags())["ezo_product_code"] = device.startup_product_code;
         (*device.descriptor.mutable_tags())["ezo_firmware"] = device.startup_firmware_version;
         state.active_devices.push_back(std::move(device));
@@ -370,7 +721,7 @@ void initialize(const ProviderConfig &config) {
     }
 
     for(const std::string &device_id : active_ids) {
-        const i2c::Status refresh_status = refresh_ph_sample(device_id);
+        const i2c::Status refresh_status = refresh_device_sample(device_id);
         if(!refresh_status.is_ok()) {
             logging::warning("startup sample failed for device '" + device_id + "': " +
                              refresh_status.message);
@@ -414,7 +765,7 @@ i2c::Status submit_i2c_job(const std::string &job_name,
     return executor->submit(job_name, timeout, std::move(job));
 }
 
-i2c::Status refresh_ph_sample(const std::string &device_id) {
+i2c::Status refresh_device_sample(const std::string &device_id) {
     if(device_id.empty()) {
         return make_status(i2c::StatusCode::InvalidArgument, "device_id is required");
     }
@@ -441,19 +792,18 @@ i2c::Status refresh_ph_sample(const std::string &device_id) {
             return make_status(i2c::StatusCode::NotFound, "unknown device_id");
         }
 
-        const uint64_t sequence = ++it->sample.sequence;
-        const double base = 6.8 + (static_cast<double>(spec.address % 7) * 0.1);
-        const double delta = static_cast<double>(sequence % 20) * 0.01;
-        it->sample.value = base + delta;
+        const uint64_t sequence = it->sample.sequence + 1;
+        build_mock_sample(spec, sequence, &it->sample.signals);
         it->sample.sampled_at = now;
         it->sample.has_sample = true;
         it->sample.last_read_ok = true;
         it->sample.last_error.clear();
         ++it->sample.success_count;
+        it->sample.sequence = sequence;
         return i2c::Status::ok();
     }
 
-    double ph_value = 0.0;
+    std::vector<SignalSample> new_signals;
     const int timeout_ms = std::max(config.timeout_ms, sample_period_ms(config) + 1500);
     const i2c::Status status = submit_i2c_job(
         "sample:" + device_id,
@@ -466,24 +816,7 @@ i2c::Status refresh_ph_sample(const std::string &device_id) {
                 return bind_status;
             }
 
-            ezo_timing_hint_t hint{};
-            const ezo_result_t send_result = ezo_ph_send_read_i2c(&binding.device, &hint);
-            if(send_result != EZO_OK) {
-                return status_from_ezo_result(send_result, "send pH read");
-            }
-
-            if(hint.wait_ms > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(hint.wait_ms));
-            }
-
-            ezo_ph_reading_t reading{};
-            const ezo_result_t read_result = ezo_ph_read_response_i2c(&binding.device, &reading);
-            if(read_result != EZO_OK) {
-                return status_from_ezo_result(read_result, "read pH response");
-            }
-
-            ph_value = reading.ph;
-            return i2c::Status::ok();
+            return read_sample_from_bound_device(&binding.device, spec, &new_signals);
         });
 
     const auto now = std::chrono::system_clock::now();
@@ -495,12 +828,13 @@ i2c::Status refresh_ph_sample(const std::string &device_id) {
         }
 
         if(status.is_ok()) {
-            it->sample.value = ph_value;
+            it->sample.signals = std::move(new_signals);
             it->sample.sampled_at = now;
             it->sample.has_sample = true;
             it->sample.last_read_ok = true;
             it->sample.last_error.clear();
             ++it->sample.success_count;
+            ++it->sample.sequence;
         } else {
             it->sample.last_read_ok = false;
             it->sample.last_error = status.message;

@@ -1,6 +1,6 @@
-# EZO v1 Draft Contracts
+# EZO v1 Contracts
 
-This document locks the Phase 0 draft contract surface. Final signal details are validated in Phase 04.
+This document locks the v1 contract surface. Signal details were finalized during Phase 04.
 
 ## Type IDs
 1. `sensor.ezo.ph`
@@ -20,9 +20,9 @@ This document locks the Phase 0 draft contract surface. Final signal details are
 2. `1002` -> `set_led`
 3. `1003` -> `sleep`
 
-## Draft signal table
+## Signal table
 
-| Family | Type ID | Draft Signal IDs | Notes |
+| Family | Type ID | Signal IDs | Notes |
 |---|---|---|---|
 | pH | `sensor.ezo.ph` | `ph.value` | scalar |
 | ORP | `sensor.ezo.orp` | `orp.millivolts` | scalar |
@@ -37,5 +37,5 @@ This document locks the Phase 0 draft contract surface. Final signal details are
 3. Use explicit timestamps for sampled values.
 
 ## Notes
-1. HUM/EC/DO field-level mapping is locked as draft here and finalized with hardware validation in Phase 04.
+1. HUM/EC/DO field-level mappings are fixed for v1; unavailable outputs are represented with non-OK quality and metadata, not by removing signals.
 2. Signal IDs are lower_snake_case segments with dot-separated namespace prefixes.

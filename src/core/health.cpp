@@ -38,7 +38,7 @@ ProviderHealth make_provider_health(const runtime::RuntimeState &state) {
     health.set_state(degraded ? ProviderHealth::STATE_DEGRADED : ProviderHealth::STATE_OK);
     health.set_message(degraded ? "degraded" : "ok");
     (*health.mutable_metrics())["impl"] = "ezo";
-    (*health.mutable_metrics())["phase"] = "3";
+    (*health.mutable_metrics())["phase"] = "4";
     (*health.mutable_metrics())["configured_devices"] =
         std::to_string(state.config.devices.size());
     (*health.mutable_metrics())["active_devices"] =
@@ -158,7 +158,7 @@ void populate_wait_ready(const runtime::RuntimeState &state, WaitReadyResponse &
         std::to_string(state.excluded_devices.size());
     (*out.mutable_diagnostics())["provider_version"] = ANOLIS_PROVIDER_EZO_VERSION;
     (*out.mutable_diagnostics())["provider_impl"] = "ezo";
-    (*out.mutable_diagnostics())["phase"] = "3";
+    (*out.mutable_diagnostics())["phase"] = "4";
     (*out.mutable_diagnostics())["startup_message"] = state.startup_message;
     (*out.mutable_diagnostics())["bus_path"] = state.config.bus_path;
     (*out.mutable_diagnostics())["i2c_executor_running"] =
