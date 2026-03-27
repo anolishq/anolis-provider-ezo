@@ -38,7 +38,8 @@ void handle_hello(const HelloRequest &request, Response &response) {
     (*hello->mutable_metadata())["max_frame_bytes"] = std::to_string(transport::kMaxFrameBytes);
     (*hello->mutable_metadata())["supports_wait_ready"] = "true";
     (*hello->mutable_metadata())["discovery_mode"] = "manual";
-    (*hello->mutable_metadata())["phase"] = "1";
+    (*hello->mutable_metadata())["phase"] = "2";
+    (*hello->mutable_metadata())["i2c_execution_model"] = "single_executor";
     set_status_ok(response);
 }
 
@@ -49,7 +50,7 @@ void handle_wait_ready(const WaitReadyRequest &, Response &response) {
 }
 
 void handle_list_devices(const ListDevicesRequest &, Response &response) {
-    // Phase 1 skeleton intentionally returns empty inventory.
+    // Phase 2 still intentionally returns empty inventory.
     (void)response.mutable_list_devices();
     set_status_ok(response);
 }

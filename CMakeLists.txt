@@ -13,6 +13,27 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Warnings.cmake)
 
 find_package(Protobuf REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+
+if(NOT DEFINED EZO_DRIVER_DIR)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/ezo-driver/CMakeLists.txt")
+        set(EZO_DRIVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ezo-driver" CACHE PATH "Path to ezo-driver repository")
+    else()
+        set(EZO_DRIVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../ezo-driver" CACHE PATH "Path to ezo-driver repository")
+    endif()
+endif()
+if(NOT EXISTS "${EZO_DRIVER_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "ezo-driver not found at: ${EZO_DRIVER_DIR}\n"
+        "Clone it next to this repo, or set -DEZO_DRIVER_DIR=/path/to/ezo-driver")
+endif()
+
+set(EZO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(EZO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(EZO_BUILD_ARDUINO_ADAPTER OFF CACHE BOOL "" FORCE)
+set(EZO_BUILD_LINUX_ADAPTER OFF CACHE BOOL "" FORCE)
+set(EZO_BUILD_POSIX_UART_ADAPTER OFF CACHE BOOL "" FORCE)
+add_subdirectory("${EZO_DRIVER_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/ezo-driver" EXCLUDE_FROM_ALL)
 
 if(NOT DEFINED ANOLIS_PROTOCOL_DIR)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/anolis-protocol/spec/device-provider/protocol.proto")
@@ -31,8 +52,7 @@ if(NOT EXISTS "${ADPP_PROTO}")
         "ADPP proto not found at: ${ADPP_PROTO}\n"
         "Expected anolis-protocol at: ${ANOLIS_PROTOCOL_DIR_ABS}\n"
         "Run: git submodule update --init --recursive\n"
-        "Or set custom path: cmake -DANOLIS_PROTOCOL_DIR=/path/to/anolis-protocol ..."
-    )
+        "Or set custom path: cmake -DANOLIS_PROTOCOL_DIR=/path/to/anolis-protocol ...")
 endif()
 
 add_library(adpp_proto OBJECT "${ADPP_PROTO}")
@@ -43,18 +63,15 @@ protobuf_generate(
     TARGET adpp_proto
     LANGUAGE cpp
     IMPORT_DIRS "${ADPP_PROTO_DIR}"
-    PROTOC_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}"
-)
+    PROTOC_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
 add_library(anolis_provider_ezo_support STATIC
     src/config/provider_config.cpp
-    src/logging/logger.cpp
-)
+    src/logging/logger.cpp)
 target_include_directories(anolis_provider_ezo_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(anolis_provider_ezo_support PUBLIC yaml-cpp::yaml-cpp)
 target_compile_definitions(anolis_provider_ezo_support PUBLIC
-    ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}"
-)
+    ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}")
 anolis_provider_ezo_apply_warnings(anolis_provider_ezo_support)
 
 add_library(anolis_provider_ezo_core STATIC
@@ -62,25 +79,26 @@ add_library(anolis_provider_ezo_core STATIC
     src/core/health.cpp
     src/core/runtime_state.cpp
     src/core/transport/framed_stdio.cpp
-)
+    src/i2c/bus_executor.cpp
+    src/i2c/ezo_i2c_bridge.cpp
+    src/i2c/session.cpp)
 target_include_directories(anolis_provider_ezo_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(anolis_provider_ezo_core
     PUBLIC
         adpp_proto
         anolis_provider_ezo_support
         protobuf::libprotobuf
-)
+        Threads::Threads
+        ezo_core)
 target_compile_definitions(anolis_provider_ezo_core PUBLIC
-    ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}"
-)
+    ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}")
 anolis_provider_ezo_apply_warnings(anolis_provider_ezo_core)
 
 add_executable(anolis-provider-ezo src/core/main.cpp)
 target_include_directories(anolis-provider-ezo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(anolis-provider-ezo PRIVATE anolis_provider_ezo_core)
 target_compile_definitions(anolis-provider-ezo PRIVATE
-    ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}"
-)
+    ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}")
 anolis_provider_ezo_apply_warnings(anolis-provider-ezo)
 
 if(WIN32)

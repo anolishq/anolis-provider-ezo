@@ -10,7 +10,7 @@ namespace {
 anolis_provider_ezo::ProviderConfig make_stub_config() {
     anolis_provider_ezo::ProviderConfig config;
     config.provider_name = "ezo-lab";
-    config.bus_path = "/dev/i2c-1";
+    config.bus_path = "mock://unit-test-i2c";
     config.query_delay_us = 300000;
     config.timeout_ms = 300;
     config.retry_count = 2;
@@ -35,6 +35,7 @@ TEST(HandlersTest, HelloReturnsProviderMetadata) {
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     EXPECT_EQ(response.hello().provider_name(), "anolis-provider-ezo");
     EXPECT_EQ(response.hello().metadata().at("discovery_mode"), "manual");
+    EXPECT_EQ(response.hello().metadata().at("i2c_execution_model"), "single_executor");
 }
 
 TEST(HandlersTest, HelloRejectsWrongProtocolVersion) {
@@ -70,7 +71,7 @@ TEST(HandlersTest, WaitReadyAndGetHealthReturnOk) {
               anolis::deviceprovider::v1::ProviderHealth::STATE_OK);
 }
 
-TEST(HandlersTest, ListDevicesIsEmptyInPhaseOneSkeleton) {
+TEST(HandlersTest, ListDevicesIsEmptyInPhaseTwoSkeleton) {
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(make_stub_config());
 

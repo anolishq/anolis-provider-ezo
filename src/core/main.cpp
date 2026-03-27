@@ -34,6 +34,13 @@ void print_usage(const char *program_name) {
         << "Implements ADPP v1 provider skeleton for EZO devices.\n";
 }
 
+class RuntimeShutdownGuard {
+public:
+    ~RuntimeShutdownGuard() {
+        anolis_provider_ezo::runtime::shutdown();
+    }
+};
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -82,6 +89,15 @@ int main(int argc, char **argv) {
     } catch(const std::exception &e) {
         anolis_provider_ezo::logging::error(e.what());
         return 1;
+    }
+
+    [[maybe_unused]] RuntimeShutdownGuard runtime_shutdown_guard;
+    const anolis_provider_ezo::runtime::RuntimeState startup_state =
+        anolis_provider_ezo::runtime::snapshot();
+    if(startup_state.ready) {
+        anolis_provider_ezo::logging::info(startup_state.startup_message);
+    } else {
+        anolis_provider_ezo::logging::warning(startup_state.startup_message);
     }
 
     set_binary_mode_stdio();
