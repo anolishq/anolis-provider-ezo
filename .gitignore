@@ -46,3 +46,6 @@ Testing/
 
 # Local working notes
 working/
+
+# Log files
+*.log
