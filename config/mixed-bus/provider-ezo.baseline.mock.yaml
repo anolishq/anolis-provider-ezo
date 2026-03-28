@@ -2,7 +2,7 @@ provider:
   name: ezo0
 
 hardware:
-  bus_path: mock://phase7
+  bus_path: mock://mixed-bus
   query_delay_us: 300000
   timeout_ms: 300
   retry_count: 2

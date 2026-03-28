@@ -1,14 +1,14 @@
-# Phase 07 Mixed-Bus Validation
+# Mixed-Bus Validation
 
-This phase now uses a minimal two-profile flow:
+This repository uses a minimal two-profile flow:
 
 1. Windows mock validation.
 2. Linux real-hardware validation.
 
 Canonical inputs:
 
-1. Config pack: [`config/phase7/`](../../config/phase7/README.md)
-2. Commands: [`config/phase7/COMMANDS.md`](../../config/phase7/COMMANDS.md)
+1. Config pack: [`config/mixed-bus/`](../config/mixed-bus/README.md)
+2. Commands: [`config/mixed-bus/COMMANDS.md`](../config/mixed-bus/COMMANDS.md)
 
 Pass criteria:
 

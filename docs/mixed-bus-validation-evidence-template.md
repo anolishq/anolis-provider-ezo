@@ -1,4 +1,4 @@
-# Phase 07 Validation Evidence Template
+# Mixed-Bus Validation Evidence Template
 
 ## Run Metadata
 
@@ -10,8 +10,8 @@
 
 ## A) Windows Mock Validation
 
-1. Runtime config: `config/phase7/anolis-runtime.mixed-baseline.windows.mock.yaml`
-2. Commands used: (from `config/phase7/COMMANDS.md`)
+1. Runtime config: `config/mixed-bus/anolis-runtime.mixed-baseline.windows.mock.yaml`
+2. Commands used: (from `config/mixed-bus/COMMANDS.md`)
 3. `/v0/runtime/status` summary:
 4. `/v0/providers/health` summary:
 5. `/v0/devices` summary:
@@ -21,10 +21,10 @@
 
 ## B) Linux Hardware Validation
 
-1. Runtime config: `config/phase7/anolis-runtime.mixed-baseline.yaml`
+1. Runtime config: `config/mixed-bus/anolis-runtime.mixed-baseline.yaml`
 2. Provider configs:
-   - `config/phase7/provider-bread.baseline.yaml`
-   - `config/phase7/provider-ezo.baseline.yaml`
+   - `config/mixed-bus/provider-bread.baseline.yaml`
+   - `config/mixed-bus/provider-ezo.baseline.yaml`
 3. Hardware topology summary:
 4. `check_mixed_bus_http.sh` command used:
 5. Script output summary:
@@ -34,6 +34,6 @@
 
 ## Final Assessment
 
-1. Overall Phase 07 status: PASS/FAIL
+1. Overall mixed-bus validation status: PASS/FAIL
 2. Open issues:
 3. Go/no-go recommendation for release:

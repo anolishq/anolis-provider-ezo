@@ -698,7 +698,7 @@ void build_mock_sample(const DeviceSpec &spec,
 
 std::string build_startup_message(const RuntimeState &state) {
     std::ostringstream out;
-    out << "phase5 startup complete: active=" << state.active_devices.size()
+    out << "startup complete: active=" << state.active_devices.size()
         << ", excluded=" << state.excluded_devices.size()
         << ", configured=" << state.config.devices.size();
     if(!state.i2c_status_message.empty()) {
@@ -742,7 +742,7 @@ void initialize(const ProviderConfig &config) {
     state.i2c_status_message = start_status.message;
     state.i2c_metrics = executor->snapshot_metrics();
     if(!start_status.is_ok()) {
-        state.startup_message = "phase5 startup failed to initialize I2C executor: " +
+        state.startup_message = "startup failed to initialize I2C executor: " +
                                 start_status.message;
         std::lock_guard<std::mutex> lock(g_mutex);
         g_state = std::move(state);

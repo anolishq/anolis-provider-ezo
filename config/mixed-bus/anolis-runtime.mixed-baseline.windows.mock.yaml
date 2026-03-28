@@ -1,12 +1,12 @@
 runtime:
-  name: phase7-mixed-baseline
+  name: mixed-bus-baseline
   shutdown_timeout_ms: 3000
   startup_timeout_ms: 30000
 
 http:
   enabled: true
   bind: 127.0.0.1
-  port: 8080
+  port: 18080
   cors_allowed_origins:
     - http://localhost:3000
     - http://127.0.0.1:3000
@@ -14,8 +14,8 @@ http:
 
 providers:
   - id: bread0
-    command: ../anolis-provider-bread/build/dev-release/anolis-provider-bread
-    args: ["--config", "../anolis-provider-ezo/config/phase7/provider-bread.baseline.yaml"]
+    command: ..\anolis-provider-bread\build\dev-windows-release\Release\anolis-provider-bread.exe
+    args: ["--config", "../anolis-provider-ezo/config/mixed-bus/provider-bread.baseline.yaml"]
     timeout_ms: 5000
     hello_timeout_ms: 2000
     ready_timeout_ms: 10000
@@ -26,8 +26,8 @@ providers:
       timeout_ms: 30000
 
   - id: ezo0
-    command: ../anolis-provider-ezo/build/dev-release/anolis-provider-ezo
-    args: ["--config", "../anolis-provider-ezo/config/phase7/provider-ezo.baseline.yaml"]
+    command: ..\anolis-provider-ezo\build\dev-windows-release\Release\anolis-provider-ezo.exe
+    args: ["--config", "../anolis-provider-ezo/config/mixed-bus/provider-ezo.baseline.mock.yaml"]
     timeout_ms: 5000
     hello_timeout_ms: 2000
     ready_timeout_ms: 10000
@@ -48,3 +48,5 @@ automation:
 
 logging:
   level: info
+
+

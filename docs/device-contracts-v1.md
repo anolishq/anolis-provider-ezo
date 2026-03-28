@@ -1,6 +1,6 @@
 # EZO v1 Contracts
 
-This document locks the v1 contract surface. Signal details were finalized during Phase 04.
+This document locks the v1 contract surface.
 
 ## Type IDs
 1. `sensor.ezo.ph`

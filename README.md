@@ -3,14 +3,13 @@
 EZO sensor hardware provider for the Anolis runtime.
 
 ## Current status
-1. Phase 0 implemented: architecture + contract lock docs in `docs/`.
-2. Phase 1 implemented: runnable ADPP provider skeleton with config parsing, framed stdio transport, and baseline unit tests.
-3. Phase 2 implemented: serialized I2C executor, Linux/mock session layer, `ezo-driver` I2C bridge, and executor behavior unit tests.
-4. Phase 3 implemented: pH vertical slice with startup identity checks, active/excluded inventory, cached pH sampling, and `ListDevices`/`DescribeDevice`/`ReadSignals`.
-5. Phase 4 implemented: full family coverage (`ph`, `orp`, `ec`, `do`, `rtd`, `hum`) with fixed-signal surfaces for multi-output families and non-OK quality for unavailable outputs.
-6. Phase 5 implemented: safe function surface (`find`, `set_led`, `sleep`) plus health/reporting hardening.
-7. Phase 6 implemented (cross-repo): runtime duplicate ownership validation landed in `anolis`.
-8. Phase 7 assets implemented: mixed-bus validation config pack, validation scripts, and evidence runbook/templates.
+1. Runnable ADPP provider with config parsing, framed stdio transport, and unit tests.
+2. Serialized I2C execution model with Linux and mock session support.
+3. Full EZO family coverage (`ph`, `orp`, `ec`, `do`, `rtd`, `hum`) with fixed signal surfaces.
+4. Safe control functions across families (`find`, `set_led`, `sleep`).
+5. Startup identity verification with active/excluded inventory diagnostics.
+6. Mixed-bus validation assets for Windows mock and Linux real hardware.
+7. Runtime duplicate ownership validation integration landed in `anolis`.
 
 ## Build
 Requires local access to:
@@ -33,11 +32,11 @@ ctest --test-dir build/dev --output-on-failure
 ./build/dev/anolis-provider-ezo --config config/example.local.yaml
 ```
 
-## Phase 7 Validation Assets
-1. Config pack: `config/phase7/`
-2. Command runbook: `config/phase7/COMMANDS.md`
-3. HTTP validation script (Linux hardware path): `scripts/phase7/check_mixed_bus_http.sh`
-4. Validation summary: `docs/cross-repo/phase-07-mixed-bus-validation.md`
+## Validation Assets
+1. Config pack: `config/mixed-bus/`
+2. Command runbook: `config/mixed-bus/COMMANDS.md`
+3. HTTP validation script (Linux hardware path): `scripts/mixed-bus/check_mixed_bus_http.sh`
+4. Validation summary: `docs/mixed-bus-validation.md`
 
 ## Docs
 1. [docs/README.md](docs/README.md)

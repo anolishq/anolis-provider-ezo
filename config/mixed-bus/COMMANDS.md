@@ -1,4 +1,4 @@
-# Phase 7 Commands (Minimal)
+# Mixed-Bus Validation Commands
 
 Use these exact commands.
 
@@ -9,7 +9,7 @@ Use these exact commands.
 ```powershell
 Set-Location D:\repos_feast\anolis
 Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue
-.\build\dev-windows-release\core\Release\anolis-runtime.exe --config ..\anolis-provider-ezo\config\phase7\anolis-runtime.mixed-baseline.windows.mock.yaml
+.\build\dev-windows-release\core\Release\anolis-runtime.exe --config ..\anolis-provider-ezo\config\mixed-bus\anolis-runtime.mixed-baseline.windows.mock.yaml
 ```
 
 ### 2) Validate endpoints (Terminal B)
@@ -38,22 +38,22 @@ Note:
 
 ```bash
 cd /path/to/anolis
-./build/dev-release/anolis-runtime --config ../anolis-provider-ezo/config/phase7/anolis-runtime.mixed-baseline.yaml
+./build/dev-release/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-baseline.yaml
 ```
 
 ### 2) Validate endpoints (Terminal B)
 
 ```bash
 cd /path/to/anolis-provider-ezo
-./scripts/phase7/check_mixed_bus_http.sh \
+./scripts/mixed-bus/check_mixed_bus_http.sh \
   --base-url http://127.0.0.1:8080 \
   --expect-providers bread0,ezo0 \
   --min-device-count 2 \
-  --capture-dir artifacts/phase7/baseline
+  --capture-dir artifacts/mixed-bus-validation/baseline
 ```
 
 Expected:
 
 1. Script exits `0`.
 2. Runtime and provider health endpoints return `status.code = OK`.
-3. Artifacts are written to `artifacts/phase7/baseline`.
+3. Artifacts are written to `artifacts/mixed-bus-validation/baseline`.

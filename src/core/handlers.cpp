@@ -417,7 +417,6 @@ void handle_hello(const HelloRequest &request, Response &response) {
     (*hello->mutable_metadata())["max_frame_bytes"] = std::to_string(transport::kMaxFrameBytes);
     (*hello->mutable_metadata())["supports_wait_ready"] = "true";
     (*hello->mutable_metadata())["discovery_mode"] = "manual";
-    (*hello->mutable_metadata())["phase"] = "5";
     (*hello->mutable_metadata())["i2c_execution_model"] = "single_executor";
     (*hello->mutable_metadata())["coverage"] = "all_families";
     set_status_ok(response);

@@ -59,7 +59,7 @@ const anolis::deviceprovider::v1::DeviceHealth *find_device_health(
     return nullptr;
 }
 
-TEST(HandlersTest, HelloReturnsPhaseFiveMetadata) {
+TEST(HandlersTest, HelloReturnsCoverageMetadata) {
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(make_full_config());
 
@@ -72,7 +72,6 @@ TEST(HandlersTest, HelloReturnsPhaseFiveMetadata) {
 
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     EXPECT_EQ(response.hello().provider_name(), "anolis-provider-ezo");
-    EXPECT_EQ(response.hello().metadata().at("phase"), "5");
     EXPECT_EQ(response.hello().metadata().at("coverage"), "all_families");
 }
 
@@ -101,14 +100,12 @@ TEST(HandlersTest, WaitReadyAndGetHealthReflectActiveAndExcludedDevices) {
     EXPECT_EQ(wait_response.wait_ready().diagnostics().at("ready"), "true");
     EXPECT_EQ(wait_response.wait_ready().diagnostics().at("active_device_count"), "1");
     EXPECT_EQ(wait_response.wait_ready().diagnostics().at("excluded_device_count"), "1");
-    EXPECT_EQ(wait_response.wait_ready().diagnostics().at("phase"), "5");
 
     anolis::deviceprovider::v1::Response health_response;
     anolis_provider_ezo::handlers::handle_get_health(
         anolis::deviceprovider::v1::GetHealthRequest{},
         health_response);
     EXPECT_EQ(health_response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
-    EXPECT_EQ(health_response.get_health().provider().metrics().at("phase"), "5");
     EXPECT_EQ(health_response.get_health().devices_size(), 2);
 }
 

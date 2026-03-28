@@ -1,4 +1,4 @@
-# Phase 7 Mixed-Bus Config Pack
+# Mixed-Bus Config Pack
 
 This directory is intentionally minimal.
 
@@ -13,7 +13,7 @@ This directory is intentionally minimal.
    - Uses real EZO provider config.
    - HTTP port `8080`.
 3. `provider-bread.baseline.yaml`: BREAD provider config.
-4. `provider-ezo.baseline.mock.yaml`: EZO mock provider config (`hardware.bus_path: mock://phase7`).
+4. `provider-ezo.baseline.mock.yaml`: EZO mock provider config (`hardware.bus_path: mock://mixed-bus`).
 5. `provider-ezo.baseline.yaml`: EZO real hardware provider config (`hardware.bus_path: /dev/i2c-1`).
 
 ## Run commands
