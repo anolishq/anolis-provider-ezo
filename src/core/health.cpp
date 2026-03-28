@@ -37,14 +37,24 @@ ProviderHealth make_provider_health(const runtime::RuntimeState &state) {
     const bool degraded = !state.ready || !state.excluded_devices.empty();
     health.set_state(degraded ? ProviderHealth::STATE_DEGRADED : ProviderHealth::STATE_OK);
     health.set_message(degraded ? "degraded" : "ok");
+
+    uint64_t call_success_total = 0;
+    uint64_t call_failure_total = 0;
+    for(const auto &device : state.active_devices) {
+        call_success_total += device.call_success_count;
+        call_failure_total += device.call_failure_count;
+    }
+
     (*health.mutable_metrics())["impl"] = "ezo";
-    (*health.mutable_metrics())["phase"] = "4";
+    (*health.mutable_metrics())["phase"] = "5";
     (*health.mutable_metrics())["configured_devices"] =
         std::to_string(state.config.devices.size());
     (*health.mutable_metrics())["active_devices"] =
         std::to_string(state.active_devices.size());
     (*health.mutable_metrics())["excluded_devices"] =
         std::to_string(state.excluded_devices.size());
+    (*health.mutable_metrics())["call_success_total"] = std::to_string(call_success_total);
+    (*health.mutable_metrics())["call_failure_total"] = std::to_string(call_failure_total);
     (*health.mutable_metrics())["bus_path"] = state.config.bus_path;
     (*health.mutable_metrics())["i2c_executor_running"] =
         state.i2c_executor_running ? "true" : "false";
@@ -66,6 +76,11 @@ ProviderHealth make_provider_health(const runtime::RuntimeState &state) {
     if(!state.i2c_metrics.last_error.empty()) {
         (*health.mutable_metrics())["i2c_last_error"] = state.i2c_metrics.last_error;
     }
+
+    for(const auto &excluded : state.excluded_devices) {
+        (*health.mutable_metrics())["excluded_reason." + excluded.spec.id] = excluded.reason;
+    }
+
     return health;
 }
 
@@ -87,6 +102,10 @@ std::vector<DeviceHealth> make_device_health(const runtime::RuntimeState &state,
             std::to_string(device.sample.success_count);
         (*health.mutable_metrics())["sample_failure_count"] =
             std::to_string(device.sample.failure_count);
+        (*health.mutable_metrics())["call_success_count"] =
+            std::to_string(device.call_success_count);
+        (*health.mutable_metrics())["call_failure_count"] =
+            std::to_string(device.call_failure_count);
         if(!device.startup_product_code.empty()) {
             (*health.mutable_metrics())["startup_product_code"] = device.startup_product_code;
         }
@@ -114,6 +133,17 @@ std::vector<DeviceHealth> make_device_health(const runtime::RuntimeState &state,
         } else {
             health.set_state(DeviceHealth::STATE_UNREACHABLE);
             health.set_message("no sample available yet");
+        }
+
+        if(device.has_last_call) {
+            (*health.mutable_metrics())["last_call_function"] = device.last_call_function;
+            (*health.mutable_metrics())["last_call_ok"] = device.last_call_ok ? "true" : "false";
+            const auto last_call_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - device.last_call_at);
+            (*health.mutable_metrics())["last_call_age_ms"] = std::to_string(last_call_age_ms.count());
+            if(!device.last_call_error.empty()) {
+                (*health.mutable_metrics())["last_call_error"] = device.last_call_error;
+            }
         }
 
         if(!device.sample.last_error.empty()) {
@@ -147,6 +177,13 @@ void populate_wait_ready(const runtime::RuntimeState &state, WaitReadyResponse &
                      .count();
     }
 
+    uint64_t call_success_total = 0;
+    uint64_t call_failure_total = 0;
+    for(const auto &device : state.active_devices) {
+        call_success_total += device.call_success_count;
+        call_failure_total += device.call_failure_count;
+    }
+
     (*out.mutable_diagnostics())["ready"] = state.ready ? "true" : "false";
     (*out.mutable_diagnostics())["init_time_ms"] = "0";
     (*out.mutable_diagnostics())["uptime_ms"] = std::to_string(uptime);
@@ -156,9 +193,11 @@ void populate_wait_ready(const runtime::RuntimeState &state, WaitReadyResponse &
         std::to_string(state.active_devices.size());
     (*out.mutable_diagnostics())["excluded_device_count"] =
         std::to_string(state.excluded_devices.size());
+    (*out.mutable_diagnostics())["call_success_total"] = std::to_string(call_success_total);
+    (*out.mutable_diagnostics())["call_failure_total"] = std::to_string(call_failure_total);
     (*out.mutable_diagnostics())["provider_version"] = ANOLIS_PROVIDER_EZO_VERSION;
     (*out.mutable_diagnostics())["provider_impl"] = "ezo";
-    (*out.mutable_diagnostics())["phase"] = "4";
+    (*out.mutable_diagnostics())["phase"] = "5";
     (*out.mutable_diagnostics())["startup_message"] = state.startup_message;
     (*out.mutable_diagnostics())["bus_path"] = state.config.bus_path;
     (*out.mutable_diagnostics())["i2c_executor_running"] =

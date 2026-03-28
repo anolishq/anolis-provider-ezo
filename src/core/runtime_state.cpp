@@ -34,6 +34,14 @@ std::shared_ptr<i2c::BusExecutor> g_executor;
 constexpr int kMinSamplePeriodMs = 50;
 constexpr int kMinStaleAfterMs = 500;
 
+using ArgSpec = anolis::deviceprovider::v1::ArgSpec;
+using FunctionSpec = anolis::deviceprovider::v1::FunctionSpec;
+constexpr auto kValueTypeBool = anolis::deviceprovider::v1::VALUE_TYPE_BOOL;
+constexpr auto kCategoryConfig =
+    anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_CONFIG;
+constexpr auto kCategoryActuate =
+    anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_ACTUATE;
+
 struct SignalDefinition {
     const char *signal_id;
     const char *name;
@@ -162,6 +170,85 @@ const SignalDefinition *signal_definitions_for_type(EzoDeviceType type,
     return defs;
 }
 
+FunctionSpec *add_function_spec(anolis::deviceprovider::v1::CapabilitySet &caps,
+                               uint32_t function_id,
+                               const char *name,
+                               const char *description,
+                               anolis::deviceprovider::v1::FunctionPolicy_Category category,
+                               bool idempotent) {
+    FunctionSpec *function = caps.add_functions();
+    function->set_function_id(function_id);
+    function->set_name(name);
+    function->set_description(description);
+    function->mutable_policy()->set_category(category);
+    function->mutable_policy()->set_is_idempotent(idempotent);
+    function->mutable_policy()->set_requires_lease(false);
+    function->mutable_policy()->set_safety_profile("safe_v1");
+    return function;
+}
+
+void add_arg_spec(FunctionSpec *function,
+                  const char *name,
+                  anolis::deviceprovider::v1::ValueType type,
+                  const char *description,
+                  bool required) {
+    if(function == nullptr) {
+        return;
+    }
+
+    ArgSpec *arg = function->add_args();
+    arg->set_name(name);
+    arg->set_type(type);
+    arg->set_description(description);
+    arg->set_required(required);
+}
+
+void add_result_spec(FunctionSpec *function,
+                     const char *name,
+                     anolis::deviceprovider::v1::ValueType type,
+                     const char *description) {
+    if(function == nullptr) {
+        return;
+    }
+
+    ArgSpec *result = function->add_results();
+    result->set_name(name);
+    result->set_type(type);
+    result->set_description(description);
+    result->set_required(true);
+}
+
+void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
+    FunctionSpec *find_fn = add_function_spec(
+        caps,
+        kFunctionFind,
+        "find",
+        "Blink the device LED to help identify physical hardware on the bus.",
+        kCategoryActuate,
+        false);
+    add_result_spec(find_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
+
+    FunctionSpec *set_led_fn = add_function_spec(
+        caps,
+        kFunctionSetLed,
+        "set_led",
+        "Enable or disable the device status LED.",
+        kCategoryConfig,
+        true);
+    add_arg_spec(set_led_fn, "enabled", kValueTypeBool, "LED state (true=on, false=off)", true);
+    add_result_spec(set_led_fn, "enabled", kValueTypeBool, "Echoed requested LED state");
+    add_result_spec(set_led_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
+
+    FunctionSpec *sleep_fn = add_function_spec(
+        caps,
+        kFunctionSleep,
+        "sleep",
+        "Put the device into low-power sleep mode.",
+        kCategoryConfig,
+        true);
+    add_result_spec(sleep_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
+}
+
 i2c::Status make_status(i2c::StatusCode code, const std::string &message) {
     return i2c::Status{code, message};
 }
@@ -236,6 +323,7 @@ anolis::deviceprovider::v1::CapabilitySet build_capabilities(const ProviderConfi
         signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_period_ms(config)));
         signal->set_stale_after_ms(static_cast<uint32_t>(stale_after_ms(config)));
     }
+    add_safe_function_specs(capabilities);
     return capabilities;
 }
 
@@ -610,7 +698,7 @@ void build_mock_sample(const DeviceSpec &spec,
 
 std::string build_startup_message(const RuntimeState &state) {
     std::ostringstream out;
-    out << "phase4 startup complete: active=" << state.active_devices.size()
+    out << "phase5 startup complete: active=" << state.active_devices.size()
         << ", excluded=" << state.excluded_devices.size()
         << ", configured=" << state.config.devices.size();
     if(!state.i2c_status_message.empty()) {
@@ -654,7 +742,7 @@ void initialize(const ProviderConfig &config) {
     state.i2c_status_message = start_status.message;
     state.i2c_metrics = executor->snapshot_metrics();
     if(!start_status.is_ok()) {
-        state.startup_message = "phase4 startup failed to initialize I2C executor: " +
+        state.startup_message = "phase5 startup failed to initialize I2C executor: " +
                                 start_status.message;
         std::lock_guard<std::mutex> lock(g_mutex);
         g_state = std::move(state);
@@ -841,8 +929,36 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             ++it->sample.failure_count;
         }
     }
-
     return status;
+}
+
+void record_call_result(const std::string &device_id,
+                        const std::string &function_name,
+                        bool ok,
+                        const std::string &message) {
+    if(device_id.empty()) {
+        return;
+    }
+
+    const auto now = std::chrono::system_clock::now();
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = find_active_device_unlocked(g_state.active_devices, device_id);
+    if(it == g_state.active_devices.end()) {
+        return;
+    }
+
+    it->has_last_call = true;
+    it->last_call_ok = ok;
+    it->last_call_function = function_name;
+    it->last_call_at = now;
+
+    if(ok) {
+        it->last_call_error.clear();
+        ++it->call_success_count;
+    } else {
+        it->last_call_error = message;
+        ++it->call_failure_count;
+    }
 }
 
 } // namespace anolis_provider_ezo::runtime
