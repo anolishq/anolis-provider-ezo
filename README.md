@@ -35,9 +35,9 @@ ctest --test-dir build/dev --output-on-failure
 
 ## Phase 7 Validation Assets
 1. Config pack: `config/phase7/`
-2. HTTP validation script: `scripts/phase7/check_mixed_bus_http.sh`
-3. Conflict assertion script: `scripts/phase7/assert_runtime_conflict_rejected.sh`
-4. Runbook: `docs/cross-repo/phase-07-mixed-bus-validation.md`
+2. Command runbook: `config/phase7/COMMANDS.md`
+3. HTTP validation script (Linux hardware path): `scripts/phase7/check_mixed_bus_http.sh`
+4. Validation summary: `docs/cross-repo/phase-07-mixed-bus-validation.md`
 
 ## Docs
 1. [docs/README.md](docs/README.md)

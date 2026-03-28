@@ -13,7 +13,8 @@ This directory holds tracked design and implementation docs for `anolis-provider
 
 ## Companion implementation assets
 1. `config/phase7/` (canonical mixed-bus test configs)
-2. `scripts/phase7/` (validation helper scripts)
+2. `config/phase7/COMMANDS.md` (single command reference for Windows mock and Linux hardware validation)
+3. `scripts/phase7/check_mixed_bus_http.sh` (Linux hardware HTTP validation helper)
 
 ## Working notes
 Execution planning notes remain under `working/` and are intentionally ignored by git.
