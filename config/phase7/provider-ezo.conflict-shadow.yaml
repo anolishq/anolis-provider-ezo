@@ -1,0 +1,17 @@
+provider:
+  name: ezo-shadow
+
+hardware:
+  bus_path: /dev/i2c-1
+  query_delay_us: 300000
+  timeout_ms: 300
+  retry_count: 2
+
+discovery:
+  mode: manual
+
+devices:
+  - id: ph_shadow
+    type: ph
+    label: Shadow pH (conflict)
+    address: 0x63

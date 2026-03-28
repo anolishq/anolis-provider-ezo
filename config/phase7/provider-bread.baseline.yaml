@@ -1,0 +1,26 @@
+provider:
+  name: bread0
+
+hardware:
+  bus_path: /dev/i2c-1
+  query_delay_us: 10000
+  timeout_ms: 100
+  retry_count: 2
+
+discovery:
+  mode: manual
+  addresses: [0x08, 0x09, 0x0A]
+
+devices:
+  - id: rlht0
+    type: rlht
+    label: Reactor Left Heater 0
+    address: 0x08
+  - id: dcmt0
+    type: dcmt
+    label: Conveyor Drive 0
+    address: 0x09
+  - id: rlht1
+    type: rlht
+    label: Reactor Left Heater 1
+    address: 0x0A

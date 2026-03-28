@@ -1,0 +1,47 @@
+runtime:
+  name: phase7-mixed-conflict
+  shutdown_timeout_ms: 3000
+  startup_timeout_ms: 30000
+
+http:
+  enabled: true
+  bind: 127.0.0.1
+  port: 8080
+  cors_allowed_origins:
+    - http://localhost:3000
+    - http://127.0.0.1:3000
+  cors_allow_credentials: false
+
+providers:
+  - id: bread0
+    command: ../anolis-provider-bread/build/dev-release/anolis-provider-bread
+    args: ["--config", "../anolis-provider-ezo/config/phase7/provider-bread.baseline.yaml"]
+    timeout_ms: 5000
+    hello_timeout_ms: 2000
+    ready_timeout_ms: 10000
+
+  - id: ezo0
+    command: ../anolis-provider-ezo/build/dev-release/anolis-provider-ezo
+    args: ["--config", "../anolis-provider-ezo/config/phase7/provider-ezo.baseline.yaml"]
+    timeout_ms: 5000
+    hello_timeout_ms: 2000
+    ready_timeout_ms: 10000
+
+  - id: ezo_shadow
+    command: ../anolis-provider-ezo/build/dev-release/anolis-provider-ezo
+    args: ["--config", "../anolis-provider-ezo/config/phase7/provider-ezo.conflict-shadow.yaml"]
+    timeout_ms: 5000
+    hello_timeout_ms: 2000
+    ready_timeout_ms: 10000
+
+polling:
+  interval_ms: 500
+
+telemetry:
+  enabled: false
+
+automation:
+  enabled: false
+
+logging:
+  level: info
