@@ -4,11 +4,13 @@
 - Date: 2026-03-27
 
 ## Context
+
 `anolis-provider-ezo` is being introduced alongside `anolis-provider-bread`, with both potentially sharing one Linux I2C adapter (`/dev/i2c-X`).
 
 The design needs to stay simple, avoid hidden coupling between providers, and remain safe under concurrent runtime behavior.
 
 ## Decision
+
 1. Provider boundaries are strict:
    - `anolis-provider-bread` remains BREAD-over-CRUMBS only.
    - `anolis-provider-ezo` handles EZO devices only.
@@ -27,12 +29,14 @@ The design needs to stay simple, avoid hidden coupling between providers, and re
 7. Cross-process advisory lock is optional hardening and not baseline for v1.
 
 ## Consequences
+
 1. Clear ownership and maintainable provider code boundaries.
 2. Reduced race risk inside each provider.
 3. Deterministic startup failure for ambiguous topology.
 4. Lower initial complexity than a global broker model.
 
 ## Non-goals for v1
+
 1. UART transport support.
 2. Auto discovery.
 3. High-risk control/calibration command surface.

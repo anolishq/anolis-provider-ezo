@@ -2,6 +2,42 @@
 
 Use these exact commands.
 
+## 0) Build Prerequisites (Preset-Based)
+
+Build all three repos before validation so executable paths in the runtime configs exist.
+
+### Linux/macOS
+
+```bash
+cd /path/to/anolis
+cmake --preset dev-release
+cmake --build --preset dev-release
+
+cd /path/to/anolis-provider-bread
+cmake --preset dev-release
+cmake --build --preset dev-release
+
+cd /path/to/anolis-provider-ezo
+cmake --preset dev-release
+cmake --build --preset dev-release
+```
+
+### Windows (PowerShell)
+
+```powershell
+Set-Location D:\repos_feast\anolis
+cmake --preset dev-windows-release
+cmake --build --preset dev-windows-release
+
+Set-Location D:\repos_feast\anolis-provider-bread
+cmake --preset dev-windows-release
+cmake --build --preset dev-windows-release
+
+Set-Location D:\repos_feast\anolis-provider-ezo
+cmake --preset dev-windows-release
+cmake --build --preset dev-windows-release
+```
+
 ## A) Windows Mock Validation (PowerShell)
 
 ### 1) Start runtime (Terminal A)
@@ -38,7 +74,7 @@ Note:
 
 ```bash
 cd /path/to/anolis
-./build/dev-release/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-baseline.yaml
+./build/dev-release/core/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-baseline.yaml
 ```
 
 ### 2) Validate endpoints (Terminal B)
@@ -58,7 +94,7 @@ cd /path/to/anolis-provider-ezo
 
 ```bash
 cd /path/to/anolis
-./build/dev-release/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-lab.yaml
+./build/dev-release/core/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-lab.yaml
 ```
 
 ### 2) Validate endpoints (Terminal B)

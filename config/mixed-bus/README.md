@@ -27,4 +27,4 @@ This directory contains canonical runtime/provider config sets for running `brea
 
 ## Run commands
 
-Use [`COMMANDS.md`](./COMMANDS.md) for exact commands.
+Use [`COMMANDS.md`](./COMMANDS.md) for exact commands, including preset-based build prerequisites for `anolis`, `anolis-provider-bread`, and `anolis-provider-ezo`.
