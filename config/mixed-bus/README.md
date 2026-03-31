@@ -12,12 +12,16 @@ This directory contains canonical runtime/provider config sets for running `brea
    - Linux real-hardware baseline validation.
    - Uses `provider-bread.baseline.yaml` + `provider-ezo.baseline.yaml`.
    - Requires `anolis-provider-bread` built with `dev-linux-hardware-release`.
+   - Requires `anolis-provider-ezo` built with `dev-linux-hardware-release`.
+   - In `anolis-provider-ezo`, `dev-linux-hardware-*` presets are naming aliases used for cross-provider operator consistency.
    - `provider-bread.baseline.yaml` sets `hardware.require_live_session: true` to fail fast on non-hardware bread builds.
    - HTTP port `8080`.
 3. `anolis-runtime.mixed-lab.yaml`
    - Linux real-hardware lab profile for current topology.
    - Uses `provider-bread.lab.yaml` + `provider-ezo.lab.yaml`.
    - Requires `anolis-provider-bread` built with `dev-linux-hardware-release`.
+   - Requires `anolis-provider-ezo` built with `dev-linux-hardware-release`.
+   - In `anolis-provider-ezo`, `dev-linux-hardware-*` presets are naming aliases used for cross-provider operator consistency.
    - `provider-bread.lab.yaml` sets `hardware.require_live_session: true` to fail fast on non-hardware bread builds.
    - HTTP port `8080`.
 

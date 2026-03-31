@@ -68,6 +68,15 @@ cmake --preset dev-release
 cmake --build --preset dev-release
 ```
 
+Linux mixed-bus hardware validation (canonical cross-provider preset naming):
+
+```bash
+cmake --preset dev-linux-hardware-release
+cmake --build --preset dev-linux-hardware-release
+```
+
+`dev-linux-hardware-*` presets in this repo are naming-alias presets for cross-provider consistency with `anolis-provider-bread`.
+
 Windows (MSVC Release):
 
 ```powershell
@@ -81,6 +90,12 @@ Linux/macOS:
 
 ```bash
 ctest --preset dev-release
+```
+
+Linux mixed-bus hardware validation path:
+
+```bash
+ctest --preset dev-linux-hardware-release
 ```
 
 Windows:
@@ -98,6 +113,13 @@ Linux/macOS:
 ./build/dev-release/anolis-provider-ezo --config config/example.local.yaml
 ```
 
+Linux mixed-bus hardware validation build path:
+
+```bash
+./build/dev-linux-hardware-release/anolis-provider-ezo --check-config config/example.local.yaml
+./build/dev-linux-hardware-release/anolis-provider-ezo --config config/example.local.yaml
+```
+
 Windows:
 
 ```powershell
@@ -112,8 +134,10 @@ Windows:
 3. HTTP validation script (Linux hardware path): `scripts/mixed-bus/check_mixed_bus_http.sh`
 4. Validation summary: `docs/mixed-bus-validation.md`
 
-For Linux mixed-bus baseline and lab runs, `anolis-provider-bread` must be built with `dev-linux-hardware-release`.
-Those Linux profiles set `hardware.require_live_session: true` in bread config so startup fails fast if bread is built without hardware support.
+For Linux mixed-bus baseline and lab runs:
+1. Build `anolis-provider-bread` with `dev-linux-hardware-release`.
+2. Build `anolis-provider-ezo` with `dev-linux-hardware-release`.
+3. Bread configs set `hardware.require_live_session: true` so startup fails fast if bread is built without hardware support.
 
 ## Docs
 

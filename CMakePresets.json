@@ -43,6 +43,14 @@
       }
     },
     {
+      "name": "dev-linux-hardware-debug",
+      "inherits": "dev-debug"
+    },
+    {
+      "name": "dev-linux-hardware-release",
+      "inherits": "dev-release"
+    },
+    {
       "name": "dev-windows-debug",
       "inherits": "base-windows-msvc",
       "cacheVariables": {
@@ -67,6 +75,14 @@
       "configurePreset": "dev-release"
     },
     {
+      "name": "dev-linux-hardware-debug",
+      "configurePreset": "dev-linux-hardware-debug"
+    },
+    {
+      "name": "dev-linux-hardware-release",
+      "configurePreset": "dev-linux-hardware-release"
+    },
+    {
       "name": "dev-windows-debug",
       "configurePreset": "dev-windows-debug",
       "configuration": "Debug"
@@ -88,6 +104,20 @@
     {
       "name": "dev-release",
       "configurePreset": "dev-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev-linux-hardware-debug",
+      "configurePreset": "dev-linux-hardware-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev-linux-hardware-release",
+      "configurePreset": "dev-linux-hardware-release",
       "output": {
         "outputOnFailure": true
       }

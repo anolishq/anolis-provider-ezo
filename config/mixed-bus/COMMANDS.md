@@ -18,9 +18,11 @@ cmake --preset dev-linux-hardware-release
 cmake --build --preset dev-linux-hardware-release
 
 cd /path/to/anolis-provider-ezo
-cmake --preset dev-release
-cmake --build --preset dev-release
+cmake --preset dev-linux-hardware-release
+cmake --build --preset dev-linux-hardware-release
 ```
+
+Note: in `anolis-provider-ezo`, `dev-linux-hardware-*` are cross-provider naming aliases.
 
 ### Windows (PowerShell)
 
@@ -117,3 +119,6 @@ Expected:
 If `bread0` fails startup with
 `hardware.require_live_session=true but provider was built without hardware support`,
 rebuild `anolis-provider-bread` with `dev-linux-hardware-release` and rerun.
+
+If runtime fails to spawn `ezo0` due missing binary path,
+rebuild `anolis-provider-ezo` with `dev-linux-hardware-release` (the Linux mixed-bus configs expect `build/dev-linux-hardware-release/anolis-provider-ezo`).
