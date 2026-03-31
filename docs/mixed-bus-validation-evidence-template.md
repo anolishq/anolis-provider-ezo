@@ -10,43 +10,32 @@
 
 ## A) Windows Mock Validation
 
-1. Runtime config: `config/mixed-bus/anolis-runtime.mixed-baseline.windows.mock.yaml`
+1. Runtime config: `config/mixed-bus/anolis-runtime.mixed.win.mock.yaml`
 2. Provider configs:
-   - `config/mixed-bus/provider-bread.baseline.mock.yaml`
-   - `config/mixed-bus/provider-ezo.baseline.mock.yaml`
+   - `config/mixed-bus/provider-bread.mock.yaml`
+   - `config/mixed-bus/provider-ezo.mock.yaml`
 3. Commands used: (from `config/mixed-bus/COMMANDS.md`)
 4. `/v0/runtime/status` summary:
 5. `/v0/providers/health` summary:
 6. `/v0/devices` summary:
 7. `/v0/state` summary:
+8. Inventory count (expected 6):
+9. Result: PASS/FAIL
+10. Notes:
+
+## B) Linux Hardware Validation
+
+1. Runtime config: `config/mixed-bus/anolis-runtime.mixed.yaml`
+2. Provider configs:
+   - `config/mixed-bus/provider-bread.yaml`
+   - `config/mixed-bus/provider-ezo.yaml`
+3. Hardware topology summary:
+4. `check_mixed_bus_http.sh` command used:
+5. Script output summary:
+6. Captured artifacts directory:
+7. Inventory count (expected 5):
 8. Result: PASS/FAIL
 9. Notes:
-
-## B) Linux Baseline Hardware Validation
-
-1. Runtime config: `config/mixed-bus/anolis-runtime.mixed-baseline.yaml`
-2. Provider configs:
-   - `config/mixed-bus/provider-bread.baseline.yaml`
-   - `config/mixed-bus/provider-ezo.baseline.yaml`
-3. Hardware topology summary:
-4. `check_mixed_bus_http.sh` command used:
-5. Script output summary:
-6. Captured artifacts directory:
-7. Result: PASS/FAIL
-8. Notes:
-
-## C) Linux Lab Hardware Validation
-
-1. Runtime config: `config/mixed-bus/anolis-runtime.mixed-lab.yaml`
-2. Provider configs:
-   - `config/mixed-bus/provider-bread.lab.yaml`
-   - `config/mixed-bus/provider-ezo.lab.yaml`
-3. Hardware topology summary:
-4. `check_mixed_bus_http.sh` command used:
-5. Script output summary:
-6. Captured artifacts directory:
-7. Result: PASS/FAIL
-8. Notes:
 
 ## Final Assessment
 

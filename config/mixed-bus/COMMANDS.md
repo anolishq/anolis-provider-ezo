@@ -47,7 +47,7 @@ cmake --build --preset dev-windows-release
 ```powershell
 Set-Location D:\repos_feast\anolis
 Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue
-.\build\dev-windows-release\core\Release\anolis-runtime.exe --config ..\anolis-provider-ezo\config\mixed-bus\anolis-runtime.mixed-baseline.windows.mock.yaml
+.\build\dev-windows-release\core\Release\anolis-runtime.exe --config ..\anolis-provider-ezo\config\mixed-bus\anolis-runtime.mixed.win.mock.yaml
 ```
 
 ### 2) Validate endpoints (Terminal B)
@@ -64,22 +64,22 @@ Expected:
 
 1. Runtime stays up.
 2. `bread0` and `ezo0` are present.
-3. `ezo0` exposes `ph0`, `do0`, `ec0`.
+3. Inventory includes 6 devices (`rlht0`, `dcmt0`, `dcmt1`, `ph0`, `do0`, `ec0`).
 
 Note:
 
 1. On Windows mock path, `bread0` may log `no hardware session`; that is expected.
 
-## B) Linux Baseline Hardware Validation
+## B) Linux Hardware Validation
 
-This baseline profile is aligned to the current lab hardware map:
+This profile is aligned to the current lab hardware map:
 RLHT `0x0A`, DCMT `0x14`, DCMT `0x15`, EZO pH `0x63`, EZO DO `0x61`.
 
 ### 1) Start runtime (Terminal A)
 
 ```bash
 cd /path/to/anolis
-./build/dev-release/core/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-baseline.yaml
+./build/dev-release/core/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed.yaml
 ```
 
 ### 2) Validate endpoints (Terminal B)
@@ -90,45 +90,22 @@ cd /path/to/anolis-provider-ezo
   --base-url http://127.0.0.1:8080 \
   --expect-providers bread0,ezo0 \
   --min-device-count 5 \
-  --capture-dir artifacts/mixed-bus-validation/baseline
-```
-
-## C) Linux Lab Hardware Validation (RLHT 0x0A, DCMT 0x14/0x15, pH 0x63, DO 0x61)
-
-This lab profile is aligned with CRUMBS `mixed_bus_lab_validation` hardware addressing.
-Optional Bosch sensor checks from CRUMBS (`0x76`/`0x77`) are not included in provider validation.
-
-### 1) Start runtime (Terminal A)
-
-```bash
-cd /path/to/anolis
-./build/dev-release/core/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-lab.yaml
-```
-
-### 2) Validate endpoints (Terminal B)
-
-```bash
-cd /path/to/anolis-provider-ezo
-./scripts/mixed-bus/check_mixed_bus_http.sh \
-  --base-url http://127.0.0.1:8080 \
-  --expect-providers bread0,ezo0 \
-  --min-device-count 5 \
-  --capture-dir artifacts/mixed-bus-validation/lab
+  --capture-dir artifacts/mixed-bus-validation/mixed
 ```
 
 Expected:
 
 1. Runtime and both providers are `AVAILABLE`.
-2. Inventory includes 5 devices total (`rlht0`, `dcmt0`, `dcmt1`, `ph0`, `do0`).
+2. Inventory includes 5 devices (`rlht0`, `dcmt0`, `dcmt1`, `ph0`, `do0`).
 3. Script exits `0` and writes artifacts.
-4. Repeated `Poll took longer than interval` warnings should not appear with current `interval_ms: 2500` profiles.
+4. Repeated `Poll took longer than interval` warnings should not appear with `interval_ms: 2500`.
 
 If `bread0` fails startup with
 `hardware.require_live_session=true but provider was built without hardware support`,
 rebuild `anolis-provider-bread` with `dev-linux-hardware-release` and rerun.
 
-If runtime fails to spawn `ezo0` due missing binary path,
-rebuild `anolis-provider-ezo` with `dev-linux-hardware-release` (the Linux mixed-bus configs expect `build/dev-linux-hardware-release/anolis-provider-ezo`).
+If runtime fails to spawn `ezo0` due to missing binary path,
+rebuild `anolis-provider-ezo` with `dev-linux-hardware-release`.
 
-If `ezo0` hello times out during startup, current Linux profiles use `hello_timeout_ms: 5000`
+If `ezo0` hello times out during startup, the Linux profile uses `hello_timeout_ms: 5000`
 to absorb normal sensor startup latency.

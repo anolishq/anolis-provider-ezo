@@ -134,7 +134,7 @@ Windows:
 3. HTTP validation script (Linux hardware path): `scripts/mixed-bus/check_mixed_bus_http.sh`
 4. Validation summary: `docs/mixed-bus-validation.md`
 
-For Linux mixed-bus baseline and lab runs:
+For Linux mixed-bus hardware runs:
 1. Build `anolis-provider-bread` with `dev-linux-hardware-release`.
 2. Build `anolis-provider-ezo` with `dev-linux-hardware-release`.
 3. Bread configs set `hardware.require_live_session: true` so startup fails fast if bread is built without hardware support.

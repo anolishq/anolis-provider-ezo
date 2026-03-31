@@ -19,9 +19,9 @@ devices:
     address: 0x0A
   - id: dcmt0
     type: dcmt
-    label: Conveyor Drive 0
+    label: Reactor Feed Pumps
     address: 0x14
   - id: dcmt1
     type: dcmt
-    label: Conveyor Drive 1
+    label: Reactor Acid-Base Pumps
     address: 0x15

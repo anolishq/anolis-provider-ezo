@@ -9,18 +9,18 @@ hardware:
 
 discovery:
   mode: manual
-  addresses: [0x08, 0x09, 0x0A]
+  addresses: [0x0A, 0x14, 0x15]
 
 devices:
   - id: rlht0
     type: rlht
     label: Reactor Left Heater 0
-    address: 0x08
+    address: 0x0A
   - id: dcmt0
     type: dcmt
-    label: Conveyor Drive 0
-    address: 0x09
-  - id: rlht1
-    type: rlht
-    label: Reactor Left Heater 1
-    address: 0x0A
+    label: Reactor Feed Pumps
+    address: 0x14
+  - id: dcmt1
+    type: dcmt
+    label: Reactor Acid-Base Pumps
+    address: 0x15
