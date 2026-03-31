@@ -128,3 +128,6 @@ rebuild `anolis-provider-bread` with `dev-linux-hardware-release` and rerun.
 
 If runtime fails to spawn `ezo0` due missing binary path,
 rebuild `anolis-provider-ezo` with `dev-linux-hardware-release` (the Linux mixed-bus configs expect `build/dev-linux-hardware-release/anolis-provider-ezo`).
+
+If `ezo0` hello times out during startup, current Linux profiles use `hello_timeout_ms: 5000`
+to absorb normal sensor startup latency.

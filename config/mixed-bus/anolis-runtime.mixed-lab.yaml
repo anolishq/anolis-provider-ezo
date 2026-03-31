@@ -29,7 +29,7 @@ providers:
     command: ../anolis-provider-ezo/build/dev-linux-hardware-release/anolis-provider-ezo
     args: ["--config", "../anolis-provider-ezo/config/mixed-bus/provider-ezo.lab.yaml"]
     timeout_ms: 5000
-    hello_timeout_ms: 2000
+    hello_timeout_ms: 5000
     ready_timeout_ms: 10000
     restart_policy:
       enabled: true
