@@ -16,6 +16,7 @@ This directory contains canonical runtime/provider config sets for running `brea
    - Requires `anolis-provider-ezo` built with `dev-linux-hardware-release`.
    - In `anolis-provider-ezo`, `dev-linux-hardware-*` presets are naming aliases used for cross-provider operator consistency.
    - `provider-bread.baseline.yaml` sets `hardware.require_live_session: true` to fail fast on non-hardware bread builds.
+   - Polling interval is tuned to `2500ms` to avoid state-cache overruns with serialized EZO reads.
    - HTTP port `8080`.
 3. `anolis-runtime.mixed-lab.yaml`
    - Linux real-hardware lab profile for current topology.
@@ -26,6 +27,7 @@ This directory contains canonical runtime/provider config sets for running `brea
    - Requires `anolis-provider-ezo` built with `dev-linux-hardware-release`.
    - In `anolis-provider-ezo`, `dev-linux-hardware-*` presets are naming aliases used for cross-provider operator consistency.
    - `provider-bread.lab.yaml` sets `hardware.require_live_session: true` to fail fast on non-hardware bread builds.
+   - Polling interval is tuned to `2500ms` to avoid state-cache overruns with serialized EZO reads.
    - HTTP port `8080`.
 
 ## Provider configs

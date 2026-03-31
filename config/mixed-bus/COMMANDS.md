@@ -121,6 +121,7 @@ Expected:
 1. Runtime and both providers are `AVAILABLE`.
 2. Inventory includes 5 devices total (`rlht0`, `dcmt0`, `dcmt1`, `ph0`, `do0`).
 3. Script exits `0` and writes artifacts.
+4. Repeated `Poll took longer than interval` warnings should not appear with current `interval_ms: 2500` profiles.
 
 If `bread0` fails startup with
 `hardware.require_live_session=true but provider was built without hardware support`,

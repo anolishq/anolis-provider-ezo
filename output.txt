@@ -1,0 +1,101 @@
+
+pi-g1@feast-alpha:~/repos_feast/anolis $ ./build/dev-release/core/anolis-runtime --config ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-baseline.yaml
+[2026-03-31 00:25:44.304] [INFO]  Anolis Core Runtime v0 starting...
+[2026-03-31 00:25:44.305] [INFO]  Loading config: ../anolis-provider-ezo/config/mixed-bus/anolis-runtime.mixed-baseline.yaml
+[2026-03-31 00:25:44.306] [INFO]  [Config] Loaded 2 provider(s)
+[2026-03-31 00:25:44.306] [INFO]  [Config] Runtime name: mixed-bus-baseline
+[2026-03-31 00:25:44.306] [INFO]  [Config] HTTP: enabled (127.0.0.1:8080)
+[2026-03-31 00:25:44.306] [INFO]  [Config] Polling interval: 500ms
+[2026-03-31 00:25:44.306] [INFO]  [Config] Telemetry: disabled
+[2026-03-31 00:25:44.306] [INFO]  [Config] Log level: info
+[2026-03-31 00:25:44.306] [INFO]  [Config] Automation: disabled
+[2026-03-31 00:25:44.307] [INFO]  [Runtime] Initializing Anolis Core
+[2026-03-31 00:25:44.307] [INFO]  [Runtime] Event emitter created (max 32 subscribers)
+[2026-03-31 00:25:44.307] [INFO]  [Runtime] Provider supervisor created
+[2026-03-31 00:25:44.307] [INFO]  [Runtime] Starting provider: bread0
+[2026-03-31 00:25:44.307] [INFO]  [bread0] Starting provider
+[2026-03-31 00:25:44.307] [INFO]  [bread0] Spawning: ../anolis-provider-bread/build/dev-linux-hardware-release/anolis-provider-bread
+[2026-03-31 00:25:44.307] [INFO]  [bread0] Process spawned successfully (PID=5324)
+[INFO] starting with config: provider.name=bread0, hardware.bus_path=/dev/i2c-1, hardware.require_live_session=true, hardware.query_delay_us=10000, hardware.timeout_ms=100, hardware.retry_count=2, discovery.mode=manual, devices=3, discovery.addresses=[0x0A, 0x14, 0x15]
+[INFO] opened CRUMBS session on bus /dev/i2c-1
+[INFO] probe 0x0A type=0x01 crumbs=1100 module=1.0.0 caps_source=queried
+[INFO] probe 0x14 type=0x02 crumbs=1100 module=1.0.0 caps_source=queried
+[INFO] probe 0x15 type=0x02 crumbs=1100 module=1.0.0 caps_source=queried
+[INFO] BREAD discovery complete (manual): 3 device(s) active
+[INFO] ready (transport=stdio+uint32_le)
+[2026-03-31 00:25:44.397] [INFO]  [bread0] Hello succeeded: anolis-provider-bread v0.1.0
+[2026-03-31 00:25:44.397] [INFO]  [bread0] Provider supports WaitReady, waiting for initialization...
+[2026-03-31 00:25:44.397] [INFO]  [Runtime] Provider bread0 started
+[2026-03-31 00:25:44.397] [INFO]  [Supervisor] Registered provider 'bread0' with restart policy (max_attempts=3)
+[2026-03-31 00:25:44.397] [INFO]  [Registry] Discovering provider: bread0
+[2026-03-31 00:25:44.398] [INFO]  [Registry] Found 3 devices
+[2026-03-31 00:25:44.398] [INFO]  [Registry] Describing device: rlht0
+[2026-03-31 00:25:44.398] [INFO]  [Registry] Registered: bread0/rlht0 (10 signals, 6 functions)
+[2026-03-31 00:25:44.398] [INFO]  [Registry] Describing device: dcmt0
+[2026-03-31 00:25:44.399] [INFO]  [Registry] Registered: bread0/dcmt0 (8 signals, 5 functions)
+[2026-03-31 00:25:44.399] [INFO]  [Registry] Describing device: dcmt1
+[2026-03-31 00:25:44.399] [INFO]  [Registry] Registered: bread0/dcmt1 (8 signals, 5 functions)
+[2026-03-31 00:25:44.399] [INFO]  [Registry] Provider bread0 registered 3/3 devices
+[2026-03-31 00:25:44.400] [INFO]  [Runtime] Starting provider: ezo0
+[2026-03-31 00:25:44.400] [INFO]  [ezo0] Starting provider
+[2026-03-31 00:25:44.400] [INFO]  [ezo0] Spawning: ../anolis-provider-ezo/build/dev-linux-hardware-release/anolis-provider-ezo
+[2026-03-31 00:25:44.401] [INFO]  [ezo0] Process spawned successfully (PID=5325)
+[anolis-provider-ezo] [INFO] starting with config: provider.name=ezo0, hardware.bus_path=/dev/i2c-1, hardware.query_delay_us=300000, hardware.timeout_ms=300, hardware.retry_count=2, discovery.mode=manual, devices=2
+[anolis-provider-ezo] [INFO] startup complete: active=2, excluded=0, configured=2, i2c=ok
+[anolis-provider-ezo] [INFO] ready (transport=stdio+uint32_le)
+[2026-03-31 00:25:46.846] [INFO]  [ezo0] Hello succeeded: anolis-provider-ezo v0.1.0
+[2026-03-31 00:25:46.846] [INFO]  [ezo0] Provider supports WaitReady, waiting for initialization...
+[2026-03-31 00:25:46.846] [INFO]  [ezo0] Provider initialized in 0ms
+[2026-03-31 00:25:46.847] [INFO]  [Runtime] Provider ezo0 started
+[2026-03-31 00:25:46.847] [INFO]  [Supervisor] Registered provider 'ezo0' with restart policy (max_attempts=3)
+[2026-03-31 00:25:46.848] [INFO]  [Registry] Discovering provider: ezo0
+[2026-03-31 00:25:46.849] [INFO]  [Registry] Found 2 devices
+[2026-03-31 00:25:46.849] [INFO]  [Registry] Describing device: ph0
+[2026-03-31 00:25:46.850] [INFO]  [Registry] Registered: ezo0/ph0 (1 signals, 3 functions)
+[2026-03-31 00:25:46.850] [INFO]  [Registry] Describing device: do0
+[2026-03-31 00:25:46.851] [INFO]  [Registry] Registered: ezo0/do0 (2 signals, 3 functions)
+[2026-03-31 00:25:46.851] [INFO]  [Registry] Provider ezo0 registered 2/2 devices
+[2026-03-31 00:25:46.852] [INFO]  [Runtime] Ownership validation passed for discovered I2C devices
+[2026-03-31 00:25:46.853] [INFO]  [Runtime] All providers started
+[2026-03-31 00:25:48.722] [INFO]  [Runtime] Automation disabled in config
+[2026-03-31 00:25:48.723] [INFO]  [Runtime] Creating HTTP server
+[2026-03-31 00:25:48.723] [INFO]  [HTTP] Starting server on 127.0.0.1:8080
+[2026-03-31 00:25:48.724] [INFO]  [HTTP] Routes configured:
+[2026-03-31 00:25:48.724] [INFO]  [HTTP]   GET  /v0/devices
+[2026-03-31 00:25:48.724] [INFO]  [HTTP]   GET  /v0/devices/{provider_id}/{device_id}/capabilities
+[2026-03-31 00:25:48.724] [INFO]  [HTTP]   GET  /v0/state
+[2026-03-31 00:25:48.724] [INFO]  [HTTP]   GET  /v0/state/{provider_id}/{device_id}
+[2026-03-31 00:25:48.724] [INFO]  [HTTP]   POST /v0/call
+[2026-03-31 00:25:48.724] [INFO]  [HTTP]   GET  /v0/runtime/status
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   GET  /v0/mode
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   POST /v0/mode
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   GET  /v0/parameters
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   POST /v0/parameters
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   GET  /v0/automation/tree
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   GET  /v0/automation/status
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   GET  /v0/providers/health
+[2026-03-31 00:25:48.725] [INFO]  [HTTP]   GET  /v0/events (SSE)
+[2026-03-31 00:25:48.726] [INFO]  [HTTP] Server listening on 127.0.0.1:8080
+[2026-03-31 00:25:48.726] [INFO]  [Runtime] HTTP server started on 127.0.0.1:8080
+[2026-03-31 00:25:48.726] [INFO]  [Runtime] Telemetry disabled in config
+[2026-03-31 00:25:48.727] [INFO]  [Runtime] Initialization complete
+[2026-03-31 00:25:48.727] [INFO]  Runtime Ready
+[2026-03-31 00:25:48.727] [INFO]    Providers: 2
+[2026-03-31 00:25:48.728] [INFO]    Devices: 5
+[2026-03-31 00:25:48.728] [INFO]    Polling: 500ms
+[2026-03-31 00:25:48.729] [INFO]  [Runtime] Starting main loop
+[2026-03-31 00:25:48.729] [INFO]  [StateCache] Polling thread starting
+[2026-03-31 00:25:48.730] [INFO]  [Runtime] State cache polling active
+[2026-03-31 00:25:48.730] [INFO]  [Runtime] Press Ctrl+C to exit
+[2026-03-31 00:25:48.726] [INFO]  [HTTP] Server thread started
+[2026-03-31 00:25:50.595] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:25:52.460] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:25:54.324] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:25:56.189] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:25:58.054] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:25:59.919] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:26:01.784] [WARN]  [StateCache] Poll took longer than interval (1864ms)
+[2026-03-31 00:26:03.647] [WARN]  [StateCache] Poll took longer than interval (1863ms)
+[2026-03-31 00:26:05.510] [WARN]  [StateCache] Poll took longer than interval (1862ms)
+
+

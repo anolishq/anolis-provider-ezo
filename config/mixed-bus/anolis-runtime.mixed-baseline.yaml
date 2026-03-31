@@ -38,7 +38,7 @@ providers:
       timeout_ms: 30000
 
 polling:
-  interval_ms: 500
+  interval_ms: 2500
 
 telemetry:
   enabled: false
