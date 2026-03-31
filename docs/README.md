@@ -12,9 +12,9 @@ This directory holds tracked design and implementation docs for `anolis-provider
 
 ## Companion validation assets
 
-1. `config/mixed-bus/` (canonical mixed-bus test configs)
-2. `config/mixed-bus/COMMANDS.md` (single command reference for Windows mock and Linux hardware validation)
-3. `scripts/mixed-bus/check_mixed_bus_http.sh` (Linux hardware HTTP validation helper)
+1. `../anolis/config/mixed-bus-providers/` (canonical mixed-bus runtime and provider configs)
+2. `../anolis/config/mixed-bus-providers/README.md` (single command reference for Windows mock and Linux hardware validation)
+3. `../anolis/config/mixed-bus-providers/check_mixed_bus_http.sh` (Linux hardware HTTP validation helper)
 
 ## Working notes
 

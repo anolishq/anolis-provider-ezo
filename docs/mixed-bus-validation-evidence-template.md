@@ -10,11 +10,11 @@
 
 ## A) Windows Mock Validation
 
-1. Runtime config: `config/mixed-bus/anolis-runtime.mixed.win.mock.yaml`
+1. Runtime config: `anolis/config/mixed-bus-providers/anolis-runtime.mixed.win.mock.yaml`
 2. Provider configs:
-   - `config/mixed-bus/provider-bread.mock.yaml`
-   - `config/mixed-bus/provider-ezo.mock.yaml`
-3. Commands used: (from `config/mixed-bus/COMMANDS.md`)
+   - `anolis/config/mixed-bus-providers/provider-bread.mock.yaml`
+   - `anolis/config/mixed-bus-providers/provider-ezo.mock.yaml`
+3. Commands used: (from `anolis/config/mixed-bus-providers/README.md`)
 4. `/v0/runtime/status` summary:
 5. `/v0/providers/health` summary:
 6. `/v0/devices` summary:
@@ -25,12 +25,12 @@
 
 ## B) Linux Hardware Validation
 
-1. Runtime config: `config/mixed-bus/anolis-runtime.mixed.yaml`
+1. Runtime config: `anolis/config/mixed-bus-providers/anolis-runtime.mixed.yaml`
 2. Provider configs:
-   - `config/mixed-bus/provider-bread.yaml`
-   - `config/mixed-bus/provider-ezo.yaml`
+   - `anolis/config/mixed-bus-providers/provider-bread.yaml`
+   - `anolis/config/mixed-bus-providers/provider-ezo.yaml`
 3. Hardware topology summary:
-4. `check_mixed_bus_http.sh` command used:
+4. `anolis/config/mixed-bus-providers/check_mixed_bus_http.sh` command used:
 5. Script output summary:
 6. Captured artifacts directory:
 7. Inventory count (expected 5):
