@@ -1,3 +1,12 @@
+/**
+ * @file bus_executor.cpp
+ * @brief Implementation of the provider's serialized I2C execution model.
+ *
+ * The executor owns one session and one worker thread. All bus work is queued
+ * and executed in order so higher-level handlers never touch the I2C transport
+ * concurrently.
+ */
+
 #include "i2c/bus_executor.hpp"
 
 #include <utility>
@@ -105,6 +114,9 @@ Status BusExecutor::submit(const std::string &job_name,
 
     cv_.notify_one();
 
+    // Timeouts apply to the waiting caller, not to the underlying I2C transfer.
+    // If the worker has already started the task, the caller may receive a
+    // deadline error even though the session operation finishes later.
     if(timeout.count() > 0) {
         const std::future_status wait_status = future.wait_for(timeout);
         if(wait_status != std::future_status::ready) {
@@ -148,6 +160,8 @@ void BusExecutor::worker_loop() {
             ++metrics_.started;
         }
 
+        // If the caller timed out before this task started, skip the job rather
+        // than issuing an unnecessary bus transaction.
         if(task->timed_out.load()) {
             safe_set_promise(task->promise,
                              make_status(StatusCode::Cancelled,

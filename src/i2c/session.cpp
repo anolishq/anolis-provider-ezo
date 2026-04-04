@@ -1,3 +1,8 @@
+/**
+ * @file session.cpp
+ * @brief Session implementations for mock and Linux I2C transports.
+ */
+
 #include "i2c/session.hpp"
 
 #include <algorithm>
@@ -137,6 +142,8 @@ Status LinuxSession::write_then_read(uint8_t address,
     }
 
 #if defined(__linux__)
+    // Use a single I2C_RDWR ioctl so write+read sequences preserve the kernel's
+    // repeated-start semantics expected by the EZO command protocol.
     struct i2c_msg msgs[2];
     int msg_count = 0;
 

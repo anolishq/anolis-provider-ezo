@@ -142,3 +142,6 @@ For Linux mixed-bus hardware runs:
 
 1. [docs/README.md](docs/README.md)
 2. Planning notes: `working/` (gitignored)
+
+Local API docs: run `doxygen docs/Doxyfile` from the repo root.
+Generated output goes to `build/docs/doxygen/html/` and remains untracked.

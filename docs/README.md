@@ -10,6 +10,11 @@ This directory holds tracked design and implementation docs for `anolis-provider
 4. [Mixed-Bus Validation Evidence Template](mixed-bus-validation-evidence-template.md)
 5. [Runtime Ownership Validation Inputs](runtime-ownership-validation-inputs.md)
 
+## Local API docs
+
+Run `doxygen docs/Doxyfile` from the repo root.
+Generated HTML goes to `build/docs/doxygen/html/` and should not be committed.
+
 ## Companion validation assets
 
 1. `../anolis/config/mixed-bus-providers/` (canonical mixed-bus runtime and provider configs)

@@ -1,5 +1,10 @@
 #pragma once
 
+/**
+ * @file runtime_state.hpp
+ * @brief Process-wide runtime state and helper APIs for the EZO provider.
+ */
+
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -14,6 +19,9 @@ namespace anolis_provider_ezo::runtime {
 using CapabilitySet = anolis::deviceprovider::v1::CapabilitySet;
 using Device = anolis::deviceprovider::v1::Device;
 
+/**
+ * @brief One signal sample slot in the cached device sample.
+ */
 struct SignalSample {
     bool available = true;
     bool has_value = false;
@@ -21,6 +29,9 @@ struct SignalSample {
     std::string unavailable_reason;
 };
 
+/**
+ * @brief Cached sample and read-history state for one active device.
+ */
 struct DeviceSampleCache {
     bool has_sample = false;
     bool last_read_ok = false;
@@ -32,6 +43,9 @@ struct DeviceSampleCache {
     std::vector<SignalSample> signals;
 };
 
+/**
+ * @brief Fully active device entry exposed by the provider.
+ */
 struct ActiveDevice {
     DeviceSpec spec;
     Device descriptor;
@@ -49,11 +63,20 @@ struct ActiveDevice {
     uint64_t call_failure_count = 0;
 };
 
+/**
+ * @brief Configured device excluded during startup with a recorded reason.
+ */
 struct ExcludedDevice {
     DeviceSpec spec;
     std::string reason;
 };
 
+/**
+ * @brief Process-wide snapshot of provider runtime state.
+ *
+ * This state is owned internally as a singleton-style runtime store and is
+ * exposed to handlers by copy through `snapshot()`.
+ */
 struct RuntimeState {
     ProviderConfig config;
     std::vector<ActiveDevice> active_devices;
@@ -70,14 +93,29 @@ constexpr uint32_t kFunctionFind = 1001;
 constexpr uint32_t kFunctionSetLed = 1002;
 constexpr uint32_t kFunctionSleep = 1003;
 
+/** @brief Reset global runtime state and stop any running executor. */
 void reset();
+
+/** @brief Initialize runtime state, start the executor, and probe configured devices. */
 void initialize(const ProviderConfig &config);
+
+/** @brief Stop the executor and mark runtime state inactive. */
 void shutdown();
+
+/** @brief Return a snapshot copy of the current runtime state. */
 RuntimeState snapshot();
+
+/**
+ * @brief Submit serialized I2C work through the shared executor.
+ */
 i2c::Status submit_i2c_job(const std::string &job_name,
                            std::chrono::milliseconds timeout,
                            i2c::BusExecutor::Job job);
+
+/** @brief Refresh one device's cached sample immediately. */
 i2c::Status refresh_device_sample(const std::string &device_id);
+
+/** @brief Record the last control-call result for one active device. */
 void record_call_result(const std::string &device_id,
                         const std::string &function_name,
                         bool ok,

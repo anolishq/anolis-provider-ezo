@@ -1,3 +1,12 @@
+/**
+ * @file runtime_state.cpp
+ * @brief Implementation of the provider's process-wide runtime state and startup probes.
+ *
+ * Startup is intentionally strict but partial-ready: every configured device is
+ * identity-checked, mismatches are excluded with diagnostics, and healthy
+ * devices still become active behind one serialized I2C executor.
+ */
+
 #include "core/runtime_state.hpp"
 
 #include <algorithm>
@@ -749,6 +758,9 @@ void initialize(const ProviderConfig &config) {
         return;
     }
 
+    // Device activation is all-or-some, not all-or-nothing. Each configured
+    // device is probed independently so one bad address or family mismatch does
+    // not hide the healthy devices on the same bus.
     const bool mock_mode = is_mock_mode(config);
     for(const DeviceSpec &spec : config.devices) {
         ezo_device_info_t info{};
@@ -893,6 +905,8 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
 
     std::vector<SignalSample> new_signals;
     const int timeout_ms = std::max(config.timeout_ms, sample_period_ms(config) + 1500);
+    // Sampling is funneled through the shared executor so reads, identity
+    // queries, and safe control calls all share one bus-serialization point.
     const i2c::Status status = submit_i2c_job(
         "sample:" + device_id,
         std::chrono::milliseconds(timeout_ms),

@@ -1,3 +1,12 @@
+/**
+ * @file handlers.cpp
+ * @brief Implementation of ADPP handlers for the EZO provider.
+ *
+ * Handler behavior is intentionally conservative: reads may refresh cached
+ * samples on demand, while control calls are limited to the small safe function
+ * surface and always execute through the serialized I2C executor.
+ */
+
 #include "core/handlers.hpp"
 
 #include <algorithm>
@@ -253,6 +262,8 @@ bool resolve_call_timeout(const CallRequest &request,
     const int clamped_default_timeout = std::max(default_timeout_ms, 1);
     std::chrono::milliseconds timeout(clamped_default_timeout);
 
+    // Honor the caller deadline when present, but never increase beyond the
+    // provider's local default timeout budget.
     if(request.has_deadline()) {
         const auto deadline = from_proto_timestamp(request.deadline());
         const auto now = std::chrono::system_clock::now();
@@ -291,6 +302,8 @@ i2c::Status execute_safe_call(const runtime::RuntimeState &state,
                                "unsupported configured device type for control call");
     }
 
+    // All control operations traverse the same executor used for reads and
+    // startup probes so safe calls cannot interleave with other bus traffic.
     return runtime::submit_i2c_job(
         "call:" + std::to_string(function_id) + ":" + device.spec.id,
         timeout,
