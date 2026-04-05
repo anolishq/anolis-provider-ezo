@@ -45,6 +45,8 @@
 
 # Build outputs
 build/
+build-*/
+artifacts/
 Testing/
 
 # Local working notes
