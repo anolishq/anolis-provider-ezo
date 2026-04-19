@@ -61,7 +61,7 @@ jobs:
       - name: Checkout ezo-driver
         uses: actions/checkout@v4
         with:
-          repository: FEASTorg/ezo-driver
+          repository: anolishq/ezo-driver
           path: anolis-provider-ezo/external/ezo-driver
 
       - name: Install Linux build tools
