@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  VCPKG_COMMIT: "66c0373dc7fca549e5803087b9487edfe3aca0a1"
+
+jobs:
+  release-linux-x86_64:
+    name: Release (linux-x86_64)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout anolis-provider-ezo
+        uses: actions/checkout@v4
+        with:
+          path: anolis-provider-ezo
+          submodules: recursive
+
+      - name: Checkout ezo-driver
+        uses: actions/checkout@v4
+        with:
+          repository: feastorg/ezo-driver
+          ref: v0.5.1
+          path: anolis-provider-ezo/external/ezo-driver
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ jq
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          doNotCache: false
+
+      - name: Configure
+        working-directory: anolis-provider-ezo
+        run: cmake --preset dev-release
+
+      - name: Build
+        working-directory: anolis-provider-ezo
+        run: cmake --build --preset dev-release --parallel
+
+      - name: Test
+        working-directory: anolis-provider-ezo
+        run: ctest --preset dev-release
+
+      - name: Package binary artifact
+        id: package
+        working-directory: anolis-provider-ezo
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT="anolis-provider-ezo-${VERSION}-linux-x86_64.tar.gz"
+          BINARY="build/dev-release/anolis-provider-ezo"
+          if [ ! -f "${BINARY}" ]; then
+            echo "ERROR: binary not found at ${BINARY}" >&2
+            exit 1
+          fi
+          mkdir -p staging/bin
+          cp "${BINARY}" staging/bin/
+          tar -czf "${ARTIFACT}" -C staging .
+          echo "artifact=${ARTIFACT}" >> "$GITHUB_OUTPUT"
+
+      - name: Package source tarball
+        working-directory: anolis-provider-ezo
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git archive --format=tar.gz \
+            --prefix="anolis-provider-ezo-${VERSION}/" \
+            -o "anolis-provider-ezo-${VERSION}-source.tar.gz" \
+            HEAD
+
+      - name: Generate checksums
+        working-directory: anolis-provider-ezo
+        run: sha256sum anolis-provider-ezo-*.tar.gz > SHA256SUMS
+
+      - name: Generate manifest
+        working-directory: anolis-provider-ezo
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT="${{ steps.package.outputs.artifact }}"
+          SHA=$(grep "${ARTIFACT}" SHA256SUMS | awk '{print $1}')
+          jq -n \
+            --argjson schema_version 1 \
+            --arg repo "anolishq/anolis-provider-ezo" \
+            --arg component "anolis_provider_ezo" \
+            --arg version "${VERSION}" \
+            --arg platform "linux-x86_64" \
+            --arg asset "${ARTIFACT}" \
+            --arg sha256 "${SHA}" \
+            '{schema_version: $schema_version, repo: $repo, component: $component, version: $version, platform: $platform, asset: $asset, sha256: $sha256}' \
+            > manifest.json
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            anolis-provider-ezo/anolis-provider-ezo-*.tar.gz
+            anolis-provider-ezo/SHA256SUMS
+            anolis-provider-ezo/manifest.json
+          generate_release_notes: true
