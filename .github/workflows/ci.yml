@@ -56,7 +56,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: anolis-provider-ezo
-          submodules: recursive
 
       - name: Checkout ezo-driver
         uses: actions/checkout@v4
