@@ -62,6 +62,14 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "ci-linux-release",
+      "inherits": "dev-release",
+      "cacheVariables": {
+        "ANOLIS_PROVIDER_EZO_WARNINGS_AS_ERRORS": "ON",
+        "EZO_DRIVER_DIR": "${sourceDir}/external/ezo-driver"
+      }
     }
   ],
   "buildPresets": [
@@ -90,6 +98,10 @@
       "name": "dev-windows-release",
       "configurePreset": "dev-windows-release",
       "configuration": "Release"
+    },
+    {
+      "name": "ci-linux-release",
+      "configurePreset": "ci-linux-release"
     }
   ],
   "testPresets": [
@@ -133,6 +145,13 @@
       "name": "dev-windows-release",
       "configurePreset": "dev-windows-release",
       "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "ci-linux-release",
+      "configurePreset": "ci-linux-release",
       "output": {
         "outputOnFailure": true
       }
