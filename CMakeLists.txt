@@ -15,25 +15,25 @@ find_package(Protobuf REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
-if(NOT DEFINED EZO_DRIVER_DIR)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/ezo-driver/CMakeLists.txt")
-        set(EZO_DRIVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ezo-driver" CACHE PATH "Path to ezo-driver repository")
-    else()
-        set(EZO_DRIVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../ezo-driver" CACHE PATH "Path to ezo-driver repository")
+# ezo-driver: find_package by default; set EZO_DRIVER_DIR to use a source-tree override.
+if(DEFINED EZO_DRIVER_DIR AND NOT EZO_DRIVER_DIR STREQUAL "")
+    if(NOT EXISTS "${EZO_DRIVER_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "ezo-driver not found at: ${EZO_DRIVER_DIR}\n"
+            "Set EZO_DRIVER_DIR to the root of the ezo-driver repository.")
     endif()
+    set(EZO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(EZO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(EZO_BUILD_ARDUINO_ADAPTER OFF CACHE BOOL "" FORCE)
+    set(EZO_BUILD_LINUX_ADAPTER OFF CACHE BOOL "" FORCE)
+    set(EZO_BUILD_POSIX_UART_ADAPTER OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${EZO_DRIVER_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/ezo-driver" EXCLUDE_FROM_ALL)
+    if(NOT TARGET ezo::ezo_core)
+        add_library(ezo::ezo_core ALIAS ezo_core)
+    endif()
+else()
+    find_package(ezo_driver CONFIG REQUIRED)
 endif()
-if(NOT EXISTS "${EZO_DRIVER_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR
-        "ezo-driver not found at: ${EZO_DRIVER_DIR}\n"
-        "Clone it next to this repo, or set -DEZO_DRIVER_DIR=/path/to/ezo-driver")
-endif()
-
-set(EZO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(EZO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(EZO_BUILD_ARDUINO_ADAPTER OFF CACHE BOOL "" FORCE)
-set(EZO_BUILD_LINUX_ADAPTER OFF CACHE BOOL "" FORCE)
-set(EZO_BUILD_POSIX_UART_ADAPTER OFF CACHE BOOL "" FORCE)
-add_subdirectory("${EZO_DRIVER_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/ezo-driver" EXCLUDE_FROM_ALL)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -108,7 +108,7 @@ target_link_libraries(anolis_provider_ezo_core
         anolis_provider_ezo_support
         protobuf::libprotobuf
         Threads::Threads
-        ezo_core)
+        ezo::ezo_core)
 target_compile_definitions(anolis_provider_ezo_core PUBLIC
     ANOLIS_PROVIDER_EZO_VERSION="${PROJECT_VERSION}")
 anolis_provider_ezo_apply_warnings(anolis_provider_ezo_core)

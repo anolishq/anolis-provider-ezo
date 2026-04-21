@@ -57,18 +57,43 @@ jobs:
         with:
           path: anolis-provider-ezo
 
-      - name: Checkout ezo-driver
-        uses: actions/checkout@v4
-        with:
-          repository: feastorg/ezo-driver
-          ref: v0.5.1
-          path: anolis-provider-ezo/external/ezo-driver
-
       - name: Install Linux build tools
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++
+
+      - name: Install ezo-driver from release (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://github.com/feastorg/ezo-driver/archive/refs/tags/v0.5.1.tar.gz -o ezo-driver.tar.gz
+          tar -xzf ezo-driver.tar.gz
+          cmake -S ezo-driver-0.5.1 -B ezo-driver-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DEZO_BUILD_TESTS=OFF \
+            -DEZO_BUILD_EXAMPLES=OFF \
+            -DEZO_BUILD_ARDUINO_ADAPTER=OFF \
+            -DEZO_BUILD_LINUX_ADAPTER=OFF \
+            -DEZO_BUILD_POSIX_UART_ADAPTER=OFF \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps-install"
+          cmake --build ezo-driver-build --parallel
+          cmake --install ezo-driver-build
+
+      - name: Install ezo-driver from release (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/feastorg/ezo-driver/archive/refs/tags/v0.5.1.tar.gz" -OutFile "ezo-driver.tar.gz"
+          tar -xzf ezo-driver.tar.gz
+          cmake -S ezo-driver-0.5.1 -B ezo-driver-build -A x64 `
+            -DEZO_BUILD_TESTS=OFF `
+            -DEZO_BUILD_EXAMPLES=OFF `
+            -DEZO_BUILD_ARDUINO_ADAPTER=OFF `
+            -DEZO_BUILD_LINUX_ADAPTER=OFF `
+            -DEZO_BUILD_POSIX_UART_ADAPTER=OFF `
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}\deps-install"
+          cmake --build ezo-driver-build --config Release --parallel
+          cmake --install ezo-driver-build --config Release
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -76,9 +101,16 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
           doNotCache: false
 
-      - name: Configure
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
         working-directory: anolis-provider-ezo
-        run: cmake --preset ${{ matrix.configure_preset }}
+        run: cmake --preset ${{ matrix.configure_preset }} "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps-install"
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        working-directory: anolis-provider-ezo
+        shell: pwsh
+        run: cmake --preset ${{ matrix.configure_preset }} "-DCMAKE_PREFIX_PATH=${{ github.workspace }}\deps-install"
 
       - name: Build
         working-directory: anolis-provider-ezo
