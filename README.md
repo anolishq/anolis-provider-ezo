@@ -12,124 +12,114 @@ EZO sensor hardware provider for the Anolis runtime.
 6. Mixed-bus validation assets for Windows mock and Linux real hardware.
 7. Runtime duplicate ownership validation integration landed in `anolis`.
 
-## Build
+## Quick Start
 
-No sibling checkouts required for a standard build.
+### Download and run (recommended)
 
-`anolis-protocol` is fetched automatically at configure time via CMake FetchContent, pinned to the
-release tag declared in `CMakeLists.txt`. `ezo-driver` is resolved via `find_package` from its
-release artifact when `EZO_DRIVER_DIR` is not set.
+Download the latest release binary (Linux x86_64):
+
+```bash
+VERSION=$(curl -fsSL https://api.github.com/repos/anolishq/anolis-provider-ezo/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+curl -fsSL "https://github.com/anolishq/anolis-provider-ezo/releases/download/v${VERSION}/anolis-provider-ezo-${VERSION}-linux-x86_64.tar.gz" \
+  | tar -xz
+# binary is at ./bin/anolis-provider-ezo
+```
+
+Validate a config file without connecting hardware:
+
+```bash
+./bin/anolis-provider-ezo --check-config config/example.local.yaml
+```
+
+Provider-ezo is started by the Anolis runtime as a subprocess — it is not run directly.
+Point your [`anolis`](https://github.com/anolishq/anolis/releases/latest) runtime config at it:
+
+```yaml
+# in your anolis-runtime.yaml providers section:
+providers:
+  - id: ezo0
+    command: ./bin/anolis-provider-ezo
+    args: ["--config", "./providers/ezo0.yaml"]
+    timeout_ms: 5000
+```
+
+See `config/example.local.yaml` in the source for a full annotated config. Validation assets
+and mixed-bus runbooks are in `anolishq/anolis-projects`.
+
+### Build from source (contributors / hardware builds)
+
+No sibling checkouts required — `anolis-protocol` and `ezo-driver` resolve automatically at configure time.
 
 For active development of `ezo-driver` alongside this repo, clone it as a sibling and pass
-`-DEZO_DRIVER_DIR=../ezo-driver` (or set it in your preset) to override the release artifact lookup.
+`-DEZO_DRIVER_DIR=../ezo-driver` to override the release artifact lookup.
 
-### Install Build Dependencies
+#### Install build dependencies
 
 Linux (Debian/Ubuntu):
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential cmake ninja-build git curl zip unzip tar pkg-config python3 python3-pip
+sudo apt-get install -y build-essential cmake ninja-build git curl zip unzip tar pkg-config
 ```
 
 Windows (PowerShell):
 
 ```powershell
-winget install Kitware.CMake
-winget install Ninja-build.Ninja
-winget install Git.Git
-winget install Python.Python.3.12
+winget install Kitware.CMake; winget install Ninja-build.Ninja; winget install Git.Git
+# Install Visual Studio 2022 with "Desktop development with C++" workload
 ```
 
-Install Visual Studio 2022 (or Build Tools) with the `Desktop development with C++` workload.
-
-### Install vcpkg
-
-Linux/macOS:
+Install vcpkg and set `VCPKG_ROOT`:
 
 ```bash
 git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
 "$HOME/vcpkg/bootstrap-vcpkg.sh"
-echo 'export VCPKG_ROOT="$HOME/vcpkg"' >> ~/.bashrc
 export VCPKG_ROOT="$HOME/vcpkg"
-test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 ```
 
-Windows (PowerShell):
-
-```powershell
-git clone https://github.com/microsoft/vcpkg.git $env:USERPROFILE\vcpkg
-& "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
-[Environment]::SetEnvironmentVariable("VCPKG_ROOT", "$env:USERPROFILE\\vcpkg", "User")
-$env:VCPKG_ROOT = [Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
-Test-Path "$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake"
-```
-
-Linux/macOS (Release):
-
-```bash
-cmake --preset dev-release
-cmake --build --preset dev-release
-```
-
-Linux mixed-bus hardware validation (canonical cross-provider preset naming):
-
-```bash
-cmake --preset dev-linux-hardware-release
-cmake --build --preset dev-linux-hardware-release
-```
-
-`dev-linux-hardware-*` presets in this repo are naming-alias presets for cross-provider consistency with `anolis-provider-bread`.
-
-Windows (MSVC Release):
-
-```powershell
-cmake --preset dev-windows-release
-cmake --build --preset dev-windows-release
-```
-
-## Test
+#### Configure, build, test
 
 Linux/macOS:
 
 ```bash
+git clone https://github.com/anolishq/anolis-provider-ezo.git
+cd anolis-provider-ezo
+cmake --preset dev-release
+cmake --build --preset dev-release --parallel
 ctest --preset dev-release
 ```
 
-Linux mixed-bus hardware validation path:
+Linux hardware build:
 
 ```bash
-ctest --preset dev-linux-hardware-release
+cmake --preset dev-linux-hardware-release
+cmake --build --preset dev-linux-hardware-release --parallel
 ```
 
-Windows:
+Windows (MSVC):
 
 ```powershell
+cmake --preset dev-windows-release
+cmake --build --preset dev-windows-release --parallel
 ctest --preset dev-windows-release
 ```
 
-## Run
+## Run (from source build)
 
-Linux/macOS:
+Linux:
 
 ```bash
 ./build/dev-release/anolis-provider-ezo --check-config config/example.local.yaml
 ./build/dev-release/anolis-provider-ezo --config config/example.local.yaml
 ```
 
-Linux mixed-bus hardware validation build path:
-
-```bash
-./build/dev-linux-hardware-release/anolis-provider-ezo --check-config config/example.local.yaml
-./build/dev-linux-hardware-release/anolis-provider-ezo --config config/example.local.yaml
-```
-
 Windows:
 
 ```powershell
 .\build\dev-windows-release\Release\anolis-provider-ezo.exe --check-config config\example.local.yaml
-.\build\dev-windows-release\Release\anolis-provider-ezo.exe --config config\example.local.yaml
 ```
+
+
 
 ## Validation Assets
 
