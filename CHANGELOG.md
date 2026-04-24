@@ -4,6 +4,17 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-04-23
+
+### CI
+
+- Fixed binary portability: added custom `triplets/x64-linux-static.cmake` vcpkg triplet
+  (`VCPKG_LIBRARY_LINKAGE=static`, `VCPKG_CRT_LINKAGE=dynamic`, `VCPKG_CMAKE_SYSTEM_NAME=Linux`)
+  and applied it to the `ci-linux-release` configure preset via `VCPKG_OVERLAY_TRIPLETS`.
+  All vcpkg dependencies (protobuf, yaml-cpp, gtest) are now statically linked into the
+  released binary. glibc remains dynamic. The tarball contains a single self-contained executable.
+  ezo-driver (`ezo_core`) was already explicitly static and is unaffected by the triplet change.
+
 ## [0.2.2] - 2026-04-23
 
 ### Changed

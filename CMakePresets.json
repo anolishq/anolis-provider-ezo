@@ -68,7 +68,9 @@
       "inherits": "dev-release",
       "cacheVariables": {
         "ANOLIS_PROVIDER_EZO_WARNINGS_AS_ERRORS": "ON",
-        "EZO_DRIVER_DIR": "${sourceDir}/external/ezo-driver"
+        "EZO_DRIVER_DIR": "${sourceDir}/external/ezo-driver",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-static"
       }
     }
   ],
