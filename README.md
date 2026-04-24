@@ -119,8 +119,6 @@ Windows:
 .\build\dev-windows-release\Release\anolis-provider-ezo.exe --check-config config\example.local.yaml
 ```
 
-
-
 ## Validation Assets
 
 1. Mixed-bus config pack and runbook: `anolis-projects/projects/mixed-bus-dev/` in the `anolishq/anolis-projects` repo
