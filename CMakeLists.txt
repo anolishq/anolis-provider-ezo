@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 option(ANOLIS_PROVIDER_EZO_WARNINGS_AS_ERRORS "Treat first-party compiler warnings as errors" OFF)
 
-project(anolis_provider_ezo VERSION 0.2.3 LANGUAGES C CXX)
+project(anolis_provider_ezo VERSION 0.2.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,8 +38,8 @@ endif()
 include(FetchContent)
 FetchContent_Declare(
     anolis_protocol
-    URL https://github.com/anolishq/anolis-protocol/releases/download/v1.1.4/anolis-protocol-1.1.4-source.tar.gz
-    URL_HASH SHA256=e79f21ee14ea988669353d5ac55942f194630af033e64bcb85abda4d3b9081e4
+    URL https://github.com/anolishq/anolis-protocol/releases/download/v1.2.0/anolis-protocol-1.2.0-source.tar.gz
+    URL_HASH SHA256=ffd2839e02c5a0f1fe512f618808de8ce138f8dcbfbfb99ea432582ce517f26c
 )
 FetchContent_MakeAvailable(anolis_protocol)
 set(ADPP_PROTO_IMPORT_ROOT "${anolis_protocol_SOURCE_DIR}/proto")

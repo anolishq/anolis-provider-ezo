@@ -1,6 +1,6 @@
 {
   "name": "anolis-provider-ezo",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "EZO hardware provider for the Anolis runtime",
   "dependencies": [
     "gtest",
