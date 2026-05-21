@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout anolis-provider-ezo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: anolis-provider-ezo
 
