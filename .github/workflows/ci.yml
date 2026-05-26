@@ -43,12 +43,14 @@ jobs:
             configure_preset: dev-release
             build_preset: dev-release
             test_preset: dev-release
+            triplet: x64-linux-static
             timeout_minutes: 30
           - name: Windows Build and Test (no hardware)
             os: windows-2022
             configure_preset: dev-windows-release
             build_preset: dev-windows-release
             test_preset: dev-windows-release
+            triplet: x64-windows
             timeout_minutes: 45
 
     steps:
@@ -64,10 +66,10 @@ jobs:
           sudo apt-get install -y cmake ninja-build g++
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11.6
+        uses: anolishq/.github/.github/actions/setup-vcpkg@main
         with:
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
-          doNotCache: false
+          vcpkg-commit: ${{ env.VCPKG_COMMIT }}
+          triplet: ${{ matrix.triplet }}
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
