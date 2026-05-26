@@ -66,7 +66,7 @@ jobs:
           sudo apt-get install -y cmake ninja-build g++
 
       - name: Setup vcpkg
-        uses: anolishq/.github/.github/actions/setup-vcpkg@43cb2b2a01fb923c6b8ad0075e87bfc396178a74 # main
+        uses: anolishq/.github/.github/actions/setup-vcpkg@afc2d268fb34aae478284589c29e3043c136a897 # main
         with:
           vcpkg-commit: ${{ env.VCPKG_COMMIT }}
           triplet: ${{ matrix.triplet }}
@@ -91,7 +91,7 @@ jobs:
         run: ctest --preset ${{ matrix.test_preset }}
 
   version-sync:
-    uses: anolishq/.github/.github/workflows/version-sync.yml@43cb2b2a01fb923c6b8ad0075e87bfc396178a74 # main
+    uses: anolishq/.github/.github/workflows/version-sync.yml@afc2d268fb34aae478284589c29e3043c136a897 # main
     with:
       python-version: '3.12'
       working-directory: '.'
