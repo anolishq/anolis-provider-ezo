@@ -57,7 +57,7 @@ jobs:
             triplet: x64-linux-static
             timeout_minutes: 30
           - name: Windows Build and Test (no hardware)
-            os: windows-2022
+            os: windows-2025
             configure_preset: dev-windows-release
             build_preset: dev-windows-release
             test_preset: dev-windows-release
