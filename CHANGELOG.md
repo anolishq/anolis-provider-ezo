@@ -4,6 +4,17 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-06-16
+
+### Changed
+
+- Bump the vcpkg baseline to the vcpkg `2026.06.01` release: protobuf
+  `5.29.5` → `6.33.4`, with abseil and the rest of the C++ dependency set
+  refreshed. No source changes required.
+- Centralize the vcpkg pin: the shared `setup-vcpkg` action now derives the
+  vcpkg commit from `vcpkg-configuration.json`, so the per-workflow
+  `VCPKG_COMMIT` env was removed.
+
 ### CI
 
 - Migrate Windows build to Visual Studio 2026. The hosted `windows-2025` /
