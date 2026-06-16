@@ -74,7 +74,7 @@ jobs:
           sudo apt-get install -y cmake ninja-build g++
 
       - name: Setup vcpkg
-        uses: anolishq/.github/.github/actions/setup-vcpkg@8be644b561c0420d5cb121caf0f37083dfd236c2 # main
+        uses: anolishq/.github/.github/actions/setup-vcpkg@c995c89985377c46ed4350e16cb761d8a9c57d1a # main
         with:
           triplet: ${{ matrix.triplet }}
 
