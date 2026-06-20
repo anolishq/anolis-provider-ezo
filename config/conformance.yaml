@@ -1,0 +1,26 @@
+# Mock-mode configuration for the ADPP conformance harness (no real i2c).
+#
+# The `mock://` bus runs the full provider without hardware, so the conformance
+# lane can drive the shipped binary in CI. See config/example.local.yaml for a
+# real-hardware example.
+provider:
+  name: anolis-provider-ezo
+
+hardware:
+  bus_path: mock://conformance
+  query_delay_us: 100000
+  timeout_ms: 500
+  retry_count: 1
+
+discovery:
+  mode: manual
+
+devices:
+  - id: ph0
+    type: ph
+    label: Conformance pH
+    address: 0x63
+  - id: do0
+    type: do
+    label: Conformance DO
+    address: 0x61

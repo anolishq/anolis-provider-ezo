@@ -1,0 +1,13 @@
+# ADPP conformance profile for anolis-provider-ezo.
+#
+# Consumed by anolis-protocol's `anolis-adpp-conformance` (via --provider-profile);
+# see that repo's conformance/ADPP-CONFORMANCE.md for the schema. This file is the
+# provider-owned identity + waiver manifest — the protocol package ships none of it.
+provider_name = "anolis-provider-ezo"
+has_mock_devices = true
+
+# No waivers: ezo is expected to satisfy the Anolis executable profile
+# (--version, --check-config, clean stdin-EOF shutdown, init_time_ms in
+# WaitReady). Add a [waivers] entry (test base-name -> "reason (owner/repo#issue)")
+# ONLY for a tracked executable-profile gap — never to mask a core or transport
+# failure (the harness rejects out-of-scope waivers at collection).
