@@ -599,34 +599,22 @@ void handle_call(const CallRequest &request, Response &response) {
     return;
   }
 
-  const FunctionSpec *by_id = nullptr;
-  const FunctionSpec *by_name = nullptr;
+  // semantics.md §6.2: when function_id is set, the provider MUST prefer it and
+  // ignore function_name (do not resolve or validate the name). Resolve the name
+  // only when function_id is unset.
+  const FunctionSpec *function_spec = nullptr;
   if (request.function_id() != 0) {
-    by_id = find_function_by_id(*device, request.function_id());
-    if (by_id == nullptr) {
+    function_spec = find_function_by_id(*device, request.function_id());
+    if (function_spec == nullptr) {
       set_status(response, Status::CODE_NOT_FOUND, "unknown function_id");
       return;
     }
-  }
-  if (!request.function_name().empty()) {
-    by_name = find_function_by_name(*device, request.function_name());
-    if (by_name == nullptr) {
+  } else {
+    function_spec = find_function_by_name(*device, request.function_name());
+    if (function_spec == nullptr) {
       set_status(response, Status::CODE_NOT_FOUND, "unknown function_name");
       return;
     }
-  }
-  if (by_id != nullptr && by_name != nullptr &&
-      by_id->function_id() != by_name->function_id()) {
-    set_status(response, Status::CODE_INVALID_ARGUMENT,
-               "function_id does not match function_name");
-    return;
-  }
-
-  const FunctionSpec *function_spec = by_id != nullptr ? by_id : by_name;
-  if (function_spec == nullptr) {
-    set_status(response, Status::CODE_NOT_FOUND,
-               "unknown function_id or function_name");
-    return;
   }
 
   bool set_led_enabled = false;
