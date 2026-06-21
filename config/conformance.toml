@@ -5,6 +5,7 @@
 # provider-owned identity + waiver manifest — the protocol package ships none of it.
 provider_name = "anolis-provider-ezo"
 has_mock_devices = true
+conformance_level = 2
 
 # No waivers: ezo is expected to satisfy the Anolis executable profile
 # (--version, --check-config, clean stdin-EOF shutdown, init_time_ms in
