@@ -499,9 +499,9 @@ void handle_read_signals(const ReadSignalsRequest &request,
   std::vector<std::string> requested_signal_ids;
   std::vector<size_t> requested_signal_indexes;
   if (request.signal_ids_size() == 0) {
-    for (const auto &signal : device->capabilities.signals()) {
-      requested_signal_ids.push_back(signal.signal_id());
-    }
+    // [§7.2] An empty signal_ids returns the curated default set, not every
+    // declared signal.
+    requested_signal_ids = device->default_signal_ids;
   } else {
     requested_signal_ids.assign(request.signal_ids().begin(),
                                 request.signal_ids().end());
