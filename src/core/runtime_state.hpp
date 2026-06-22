@@ -50,6 +50,8 @@ struct ActiveDevice {
   DeviceSpec spec;
   Device descriptor;
   CapabilitySet capabilities;
+  // [§7.2] Curated default signal set, returned for an empty signal_ids read.
+  std::vector<std::string> default_signal_ids;
   std::string startup_product_code;
   std::string startup_firmware_version;
   DeviceSampleCache sample;

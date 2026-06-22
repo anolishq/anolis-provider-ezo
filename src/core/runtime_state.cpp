@@ -57,39 +57,45 @@ struct SignalDefinition {
   const char *name;
   const char *description;
   const char *unit;
+  // [§7.2] Included in the default signal set returned for an empty
+  // ReadSignalsRequest.signal_ids — the primary, routinely-useful telemetry.
+  // Derived/specialized signals are excluded from the default.
+  bool is_default;
 };
 
 constexpr SignalDefinition kPhSignals[] = {
-    {"ph.value", "pH", "Latest pH measurement", "pH"},
+    {"ph.value", "pH", "Latest pH measurement", "pH", true},
 };
 
 constexpr SignalDefinition kOrpSignals[] = {
-    {"orp.millivolts", "ORP", "Latest ORP measurement", "mV"},
+    {"orp.millivolts", "ORP", "Latest ORP measurement", "mV", true},
 };
 
 constexpr SignalDefinition kEcSignals[] = {
     {"ec.conductivity_us_cm", "EC Conductivity", "Electrical conductivity",
-     "uS/cm"},
-    {"ec.tds_ppm", "EC TDS", "Total dissolved solids", "ppm"},
-    {"ec.salinity_psu", "EC Salinity", "Salinity", "psu"},
-    {"ec.specific_gravity", "EC Specific Gravity", "Specific gravity", "sg"},
+     "uS/cm", true},
+    {"ec.tds_ppm", "EC TDS", "Total dissolved solids", "ppm", false},
+    {"ec.salinity_psu", "EC Salinity", "Salinity", "psu", false},
+    {"ec.specific_gravity", "EC Specific Gravity", "Specific gravity", "sg",
+     false},
 };
 
 constexpr SignalDefinition kDoSignals[] = {
     {"do.mg_l", "Dissolved Oxygen (mg/L)", "Dissolved oxygen concentration",
-     "mg/L"},
+     "mg/L", true},
     {"do.saturation_pct", "Dissolved Oxygen (%)",
-     "Dissolved oxygen percent saturation", "%"},
+     "Dissolved oxygen percent saturation", "%", false},
 };
 
 constexpr SignalDefinition kRtdSignals[] = {
-    {"rtd.temperature_c", "RTD Temperature", "Temperature reading", "C"},
+    {"rtd.temperature_c", "RTD Temperature", "Temperature reading", "C", true},
 };
 
 constexpr SignalDefinition kHumSignals[] = {
-    {"hum.relative_humidity_pct", "Humidity", "Relative humidity", "%"},
-    {"hum.temperature_c", "Air Temperature", "Ambient air temperature", "C"},
-    {"hum.dew_point_c", "Dew Point", "Dew point temperature", "C"},
+    {"hum.relative_humidity_pct", "Humidity", "Relative humidity", "%", true},
+    {"hum.temperature_c", "Air Temperature", "Ambient air temperature", "C",
+     true},
+    {"hum.dew_point_c", "Dew Point", "Dew point temperature", "C", false},
 };
 
 bool has_prefix(const std::string &value, const std::string &prefix) {
@@ -329,6 +335,20 @@ build_capabilities(const ProviderConfig &config, EzoDeviceType type) {
   }
   add_safe_function_specs(capabilities);
   return capabilities;
+}
+
+// [§7.2] The curated default signal set for a device type — the is_default
+// signals, returned when ReadSignalsRequest.signal_ids is empty.
+std::vector<std::string> default_signal_ids_for_type(EzoDeviceType type) {
+  size_t count = 0;
+  const SignalDefinition *defs = signal_definitions_for_type(type, &count);
+  std::vector<std::string> ids;
+  for (size_t i = 0; i < count; ++i) {
+    if (defs[i].is_default) {
+      ids.emplace_back(defs[i].signal_id);
+    }
+  }
+  return ids;
 }
 
 anolis::deviceprovider::v1::Device
@@ -805,6 +825,7 @@ void initialize(const ProviderConfig &config) {
     device.spec = spec;
     device.descriptor = build_descriptor(config, spec);
     device.capabilities = build_capabilities(config, spec.type);
+    device.default_signal_ids = default_signal_ids_for_type(spec.type);
     device.startup_product_code = info.product_code;
     device.startup_firmware_version = info.firmware_version;
     device.sample.signals.resize(

@@ -181,6 +181,10 @@ TEST(HandlersTest,
 
   anolis::deviceprovider::v1::ReadSignalsRequest request;
   request.set_device_id("do0");
+  // Request the full surface explicitly to exercise unavailable-signal metadata
+  // (the default set is curated to do.mg_l only; see the curated-default test).
+  request.add_signal_ids("do.mg_l");
+  request.add_signal_ids("do.saturation_pct");
 
   anolis::deviceprovider::v1::Response response;
   anolis_provider_ezo::handlers::handle_read_signals(request, response);
@@ -206,6 +210,12 @@ TEST(HandlersTest,
 
   anolis::deviceprovider::v1::ReadSignalsRequest request;
   request.set_device_id("ec0");
+  // Request the full surface explicitly (the default set is curated to
+  // ec.conductivity_us_cm only; see the curated-default test).
+  request.add_signal_ids("ec.conductivity_us_cm");
+  request.add_signal_ids("ec.tds_ppm");
+  request.add_signal_ids("ec.salinity_psu");
+  request.add_signal_ids("ec.specific_gravity");
 
   anolis::deviceprovider::v1::Response response;
   anolis_provider_ezo::handlers::handle_read_signals(request, response);
@@ -267,6 +277,11 @@ TEST(HandlersTest,
 
   anolis::deviceprovider::v1::ReadSignalsRequest request;
   request.set_device_id("hum0");
+  // Request the full surface explicitly (the default set is curated to
+  // relative_humidity_pct + temperature_c; see the curated-default test).
+  request.add_signal_ids("hum.relative_humidity_pct");
+  request.add_signal_ids("hum.temperature_c");
+  request.add_signal_ids("hum.dew_point_c");
 
   anolis::deviceprovider::v1::Response response;
   anolis_provider_ezo::handlers::handle_read_signals(request, response);
@@ -283,6 +298,41 @@ TEST(HandlersTest,
             anolis::deviceprovider::v1::SignalValue::QUALITY_UNKNOWN);
   EXPECT_EQ(response.read_signals().values(2).metadata().at("unavailable"),
             "true");
+}
+
+TEST(HandlersTest, ReadSignalsDefaultSetIsCuratedSubset) {
+  anolis_provider_ezo::runtime::reset();
+  anolis_provider_ezo::runtime::initialize(make_full_config());
+
+  // [§7.2] An empty signal_ids returns the curated default subset, not every
+  // declared signal. EC declares 4 signals but defaults to conductivity only.
+  {
+    anolis::deviceprovider::v1::ReadSignalsRequest request;
+    request.set_device_id("ec0");
+    anolis::deviceprovider::v1::Response response;
+    anolis_provider_ezo::handlers::handle_read_signals(request, response);
+    EXPECT_EQ(response.status().code(),
+              anolis::deviceprovider::v1::Status::CODE_OK);
+    ASSERT_EQ(response.read_signals().values_size(), 1);
+    EXPECT_EQ(response.read_signals().values(0).signal_id(),
+              "ec.conductivity_us_cm");
+  }
+
+  // Humidity declares 3 signals but defaults to RH + air temperature (dew point
+  // is derived, excluded).
+  {
+    anolis::deviceprovider::v1::ReadSignalsRequest request;
+    request.set_device_id("hum0");
+    anolis::deviceprovider::v1::Response response;
+    anolis_provider_ezo::handlers::handle_read_signals(request, response);
+    EXPECT_EQ(response.status().code(),
+              anolis::deviceprovider::v1::Status::CODE_OK);
+    ASSERT_EQ(response.read_signals().values_size(), 2);
+    EXPECT_EQ(response.read_signals().values(0).signal_id(),
+              "hum.relative_humidity_pct");
+    EXPECT_EQ(response.read_signals().values(1).signal_id(),
+              "hum.temperature_c");
+  }
 }
 
 TEST(HandlersTest, ReadSignalsRejectsUnknownSignalId) {
