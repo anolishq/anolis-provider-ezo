@@ -4,6 +4,30 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-06-22
+
+### Added
+
+- **ADPP conformance level 2.** Declare `conformance_level = 2` in
+  `config/conformance.toml`. The provider satisfies the L2 clauses of the ADPP
+  semantics: a non-Hello request received before a successful Hello is rejected
+  with `CODE_FAILED_PRECONDITION` (§3.2), and `function_id` is preferred over
+  `function_name` when both are supplied in a `Call` (§6.2).
+
+### CI
+
+- Add the ADPP `provider.conformance` lane: run the pinned
+  `anolis-adpp-conformance` harness against the built binary using the
+  provider-owned `config/conformance.toml` manifest.
+- Add a ThreadSanitizer lane and the shared Valgrind leak-check hardening
+  workflow.
+- Add a keyless dependency/CVE scan (`cve-bin-tool`) lane.
+
+### Changed
+
+- Routine dependency maintenance: refresh pinned GitHub Actions to the current
+  org-tracked revisions.
+
 ## [0.2.6] - 2026-06-16
 
 ### Changed
