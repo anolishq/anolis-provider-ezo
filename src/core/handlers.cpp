@@ -21,6 +21,8 @@
 #include "core/health.hpp"
 #include "core/runtime_state.hpp"
 #include "core/transport/framed_stdio.hpp"
+#include "devices/common/device_adapter.hpp"
+#include "devices/common/sample_helpers.hpp"
 #include "i2c/ezo_i2c_bridge.hpp"
 #include "logging/logger.hpp"
 
@@ -140,51 +142,10 @@ const FunctionSpec *find_function_by_name(const runtime::ActiveDevice &device, c
 
 i2c::Status make_i2c_status(i2c::StatusCode code, const std::string &message) { return i2c::Status{code, message}; }
 
-ezo_product_id_t expected_product_for_type(EzoDeviceType type) {
-    switch (type) {
-        case EzoDeviceType::Ph:
-            return EZO_PRODUCT_PH;
-        case EzoDeviceType::Orp:
-            return EZO_PRODUCT_ORP;
-        case EzoDeviceType::Ec:
-            return EZO_PRODUCT_EC;
-        case EzoDeviceType::Do:
-            return EZO_PRODUCT_DO;
-        case EzoDeviceType::Rtd:
-            return EZO_PRODUCT_RTD;
-        case EzoDeviceType::Hum:
-            return EZO_PRODUCT_HUM;
-    }
-
-    return EZO_PRODUCT_UNKNOWN;
-}
-
-void wait_for_timing_hint(const ezo_timing_hint_t &hint) {
-    if (hint.wait_ms > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(hint.wait_ms));
-    }
-}
-
-i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &context) {
-    if (result == EZO_OK) {
-        return i2c::Status::ok();
-    }
-
-    switch (result) {
-        case EZO_ERR_INVALID_ARGUMENT:
-            return make_i2c_status(i2c::StatusCode::InvalidArgument, context + ": " + ezo_result_name(result));
-        case EZO_ERR_TRANSPORT:
-            return make_i2c_status(i2c::StatusCode::Unavailable, context + ": " + ezo_result_name(result));
-        case EZO_ERR_BUFFER_TOO_SMALL:
-        case EZO_ERR_PROTOCOL:
-        case EZO_ERR_PARSE:
-            return make_i2c_status(i2c::StatusCode::Internal, context + ": " + ezo_result_name(result));
-        case EZO_OK:
-            break;
-    }
-
-    return make_i2c_status(i2c::StatusCode::Internal, context + ": " + ezo_result_name(result));
-}
+// EZO error mapping and timing waits are shared with the device-adapter modules
+// (src/devices/common). Device-type → product mapping is the adapter's metadata.
+using devices::status_from_ezo_result;
+using devices::wait_for_timing_hint;
 
 bool validate_call_args(uint32_t function_id, const ValueMap &args, bool *set_led_enabled, std::string *error_out) {
     auto set_error = [&](const std::string &message) {
@@ -269,7 +230,7 @@ i2c::Status execute_safe_call(const runtime::RuntimeState &state, const runtime:
         return i2c::Status::ok();
     }
 
-    const ezo_product_id_t product_id = expected_product_for_type(device.spec.type);
+    const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
         return make_i2c_status(i2c::StatusCode::Internal, "unsupported configured device type for control call");
     }

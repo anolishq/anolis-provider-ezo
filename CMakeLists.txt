@@ -139,6 +139,14 @@ add_library(anolis_provider_ezo_core STATIC
     src/core/health.cpp
     src/core/runtime_state.cpp
     src/core/transport/framed_stdio.cpp
+    src/devices/common/sample_helpers.cpp
+    src/devices/common/device_adapter.cpp
+    src/devices/ph/ph_adapter.cpp
+    src/devices/orp/orp_adapter.cpp
+    src/devices/ec/ec_adapter.cpp
+    src/devices/do/do_adapter.cpp
+    src/devices/rtd/rtd_adapter.cpp
+    src/devices/hum/hum_adapter.cpp
     src/i2c/bus_executor.cpp
     src/i2c/ezo_i2c_bridge.cpp
     src/i2c/session.cpp)

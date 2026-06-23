@@ -20,6 +20,8 @@
 #include <thread>
 #include <utility>
 
+#include "devices/common/device_adapter.hpp"
+#include "devices/common/sample_helpers.hpp"
 #include "i2c/ezo_i2c_bridge.hpp"
 #include "logging/logger.hpp"
 
@@ -50,46 +52,12 @@ constexpr auto kValueTypeBool = anolis::deviceprovider::v1::VALUE_TYPE_BOOL;
 constexpr auto kCategoryConfig = anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_CONFIG;
 constexpr auto kCategoryActuate = anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_ACTUATE;
 
-struct SignalDefinition {
-    const char *signal_id;
-    const char *name;
-    const char *description;
-    const char *unit;
-    // [§7.2] Included in the default signal set returned for an empty
-    // ReadSignalsRequest.signal_ids — the primary, routinely-useful telemetry.
-    // Derived/specialized signals are excluded from the default.
-    bool is_default;
-};
-
-constexpr SignalDefinition kPhSignals[] = {
-    {"ph_value", "pH", "Latest pH measurement", "pH", true},
-};
-
-constexpr SignalDefinition kOrpSignals[] = {
-    {"orp_millivolts", "ORP", "Latest ORP measurement", "mV", true},
-};
-
-constexpr SignalDefinition kEcSignals[] = {
-    {"ec_conductivity_us_cm", "EC Conductivity", "Electrical conductivity", "uS/cm", true},
-    {"ec_tds_ppm", "EC TDS", "Total dissolved solids", "ppm", false},
-    {"ec_salinity_psu", "EC Salinity", "Salinity", "psu", false},
-    {"ec_specific_gravity", "EC Specific Gravity", "Specific gravity", "sg", false},
-};
-
-constexpr SignalDefinition kDoSignals[] = {
-    {"do_mg_l", "Dissolved Oxygen (mg/L)", "Dissolved oxygen concentration", "mg/L", true},
-    {"do_saturation_pct", "Dissolved Oxygen (%)", "Dissolved oxygen percent saturation", "%", false},
-};
-
-constexpr SignalDefinition kRtdSignals[] = {
-    {"rtd_temperature_c", "RTD Temperature", "Temperature reading", "C", true},
-};
-
-constexpr SignalDefinition kHumSignals[] = {
-    {"hum_relative_humidity_pct", "Humidity", "Relative humidity", "%", true},
-    {"hum_temperature_c", "Air Temperature", "Ambient air temperature", "C", true},
-    {"hum_dew_point_c", "Dew Point", "Dew point temperature", "C", false},
-};
+// Per-family signal tables, read/mock logic, and EZO error/timing helpers now
+// live in the device-adapter modules (src/devices/). Pull the shared helpers
+// that retained runtime code still calls into this scope.
+using devices::make_status;
+using devices::SignalDefinition;
+using devices::status_from_ezo_result;
 
 bool has_prefix(const std::string &value, const std::string &prefix) { return value.rfind(prefix, 0) == 0; }
 
@@ -101,78 +69,16 @@ int sample_period_ms(const ProviderConfig &config) {
 
 int stale_after_ms(const ProviderConfig &config) { return std::max(sample_period_ms(config) * 3, kMinStaleAfterMs); }
 
-ezo_product_id_t expected_product_for_type(EzoDeviceType type) {
-    switch (type) {
-        case EzoDeviceType::Ph:
-            return EZO_PRODUCT_PH;
-        case EzoDeviceType::Orp:
-            return EZO_PRODUCT_ORP;
-        case EzoDeviceType::Ec:
-            return EZO_PRODUCT_EC;
-        case EzoDeviceType::Do:
-            return EZO_PRODUCT_DO;
-        case EzoDeviceType::Rtd:
-            return EZO_PRODUCT_RTD;
-        case EzoDeviceType::Hum:
-            return EZO_PRODUCT_HUM;
-    }
+ezo_product_id_t expected_product_for_type(EzoDeviceType type) { return devices::adapter_for(type).expected_product; }
 
-    return EZO_PRODUCT_UNKNOWN;
-}
-
-const char *type_id_for_device(EzoDeviceType type) {
-    switch (type) {
-        case EzoDeviceType::Ph:
-            return "sensor.ezo.ph";
-        case EzoDeviceType::Orp:
-            return "sensor.ezo.orp";
-        case EzoDeviceType::Ec:
-            return "sensor.ezo.ec";
-        case EzoDeviceType::Do:
-            return "sensor.ezo.do";
-        case EzoDeviceType::Rtd:
-            return "sensor.ezo.rtd";
-        case EzoDeviceType::Hum:
-            return "sensor.ezo.hum";
-    }
-    return "sensor.ezo.unknown";
-}
+const char *type_id_for_device(EzoDeviceType type) { return devices::adapter_for(type).type_id; }
 
 const SignalDefinition *signal_definitions_for_type(EzoDeviceType type, size_t *count_out) {
-    const SignalDefinition *defs = nullptr;
-    size_t count = 0;
-
-    switch (type) {
-        case EzoDeviceType::Ph:
-            defs = kPhSignals;
-            count = sizeof(kPhSignals) / sizeof(kPhSignals[0]);
-            break;
-        case EzoDeviceType::Orp:
-            defs = kOrpSignals;
-            count = sizeof(kOrpSignals) / sizeof(kOrpSignals[0]);
-            break;
-        case EzoDeviceType::Ec:
-            defs = kEcSignals;
-            count = sizeof(kEcSignals) / sizeof(kEcSignals[0]);
-            break;
-        case EzoDeviceType::Do:
-            defs = kDoSignals;
-            count = sizeof(kDoSignals) / sizeof(kDoSignals[0]);
-            break;
-        case EzoDeviceType::Rtd:
-            defs = kRtdSignals;
-            count = sizeof(kRtdSignals) / sizeof(kRtdSignals[0]);
-            break;
-        case EzoDeviceType::Hum:
-            defs = kHumSignals;
-            count = sizeof(kHumSignals) / sizeof(kHumSignals[0]);
-            break;
-    }
-
+    const devices::DeviceAdapter &adapter = devices::adapter_for(type);
     if (count_out != nullptr) {
-        *count_out = count;
+        *count_out = adapter.signal_count;
     }
-    return defs;
+    return adapter.signals;
 }
 
 FunctionSpec *add_function_spec(anolis::deviceprovider::v1::CapabilitySet &caps, uint32_t function_id, const char *name,
@@ -230,35 +136,6 @@ void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
     FunctionSpec *sleep_fn = add_function_spec(caps, kFunctionSleep, "sleep",
                                                "Put the device into low-power sleep mode.", kCategoryConfig, true);
     add_result_spec(sleep_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
-}
-
-i2c::Status make_status(i2c::StatusCode code, const std::string &message) { return i2c::Status{code, message}; }
-
-void wait_for_timing_hint(const ezo_timing_hint_t &hint) {
-    if (hint.wait_ms > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(hint.wait_ms));
-    }
-}
-
-i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &context) {
-    if (result == EZO_OK) {
-        return i2c::Status::ok();
-    }
-
-    switch (result) {
-        case EZO_ERR_INVALID_ARGUMENT:
-            return make_status(i2c::StatusCode::InvalidArgument, context + ": " + ezo_result_name(result));
-        case EZO_ERR_TRANSPORT:
-            return make_status(i2c::StatusCode::Unavailable, context + ": " + ezo_result_name(result));
-        case EZO_ERR_BUFFER_TOO_SMALL:
-        case EZO_ERR_PROTOCOL:
-        case EZO_ERR_PARSE:
-            return make_status(i2c::StatusCode::Internal, context + ": " + ezo_result_name(result));
-        case EZO_OK:
-            break;
-    }
-
-    return make_status(i2c::StatusCode::Internal, context + ": " + ezo_result_name(result));
 }
 
 std::unique_ptr<i2c::ISession> make_session(const ProviderConfig &config) {
@@ -406,258 +283,19 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig
     return status;
 }
 
-void set_signal_value(std::vector<SignalSample> &signals, size_t index, double value) {
-    if (index >= signals.size()) {
-        return;
-    }
-    signals[index].available = true;
-    signals[index].has_value = true;
-    signals[index].value = value;
-    signals[index].unavailable_reason.clear();
-}
-
-void set_signal_unavailable(std::vector<SignalSample> &signals, size_t index, const std::string &reason) {
-    if (index >= signals.size()) {
-        return;
-    }
-    signals[index].available = false;
-    signals[index].has_value = false;
-    signals[index].value = 0.0;
-    signals[index].unavailable_reason = reason;
-}
-
-void initialize_signal_samples(EzoDeviceType type, std::vector<SignalSample> *signals_out) {
-    if (signals_out == nullptr) {
-        return;
-    }
-    size_t signal_count = 0;
-    (void)signal_definitions_for_type(type, &signal_count);
-    signals_out->assign(signal_count, SignalSample{});
-}
-
 i2c::Status read_sample_from_bound_device(ezo_i2c_device_t *device, const DeviceSpec &spec,
                                           std::vector<SignalSample> *signals_out) {
     if (device == nullptr || signals_out == nullptr) {
         return make_status(i2c::StatusCode::InvalidArgument, "device sample read requires valid pointers");
     }
-
-    initialize_signal_samples(spec.type, signals_out);
-
-    switch (spec.type) {
-        case EzoDeviceType::Ph: {
-            ezo_timing_hint_t hint{};
-            ezo_result_t result = ezo_ph_send_read_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send pH read");
-            }
-            wait_for_timing_hint(hint);
-            ezo_ph_reading_t reading{};
-            result = ezo_ph_read_response_i2c(device, &reading);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read pH response");
-            }
-            set_signal_value(*signals_out, 0, reading.ph);
-            return i2c::Status::ok();
-        }
-        case EzoDeviceType::Orp: {
-            ezo_timing_hint_t hint{};
-            ezo_result_t result = ezo_orp_send_read_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send ORP read");
-            }
-            wait_for_timing_hint(hint);
-            ezo_orp_reading_t reading{};
-            result = ezo_orp_read_response_i2c(device, &reading);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read ORP response");
-            }
-            set_signal_value(*signals_out, 0, reading.millivolts);
-            return i2c::Status::ok();
-        }
-        case EzoDeviceType::Rtd: {
-            ezo_timing_hint_t hint{};
-            ezo_result_t result = ezo_rtd_send_read_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send RTD read");
-            }
-            wait_for_timing_hint(hint);
-            ezo_rtd_reading_t reading{};
-            result = ezo_rtd_read_response_i2c(device, EZO_RTD_SCALE_CELSIUS, &reading);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read RTD response");
-            }
-            set_signal_value(*signals_out, 0, reading.temperature);
-            return i2c::Status::ok();
-        }
-        case EzoDeviceType::Ec: {
-            ezo_timing_hint_t hint{};
-            ezo_result_t result = ezo_ec_send_output_query_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send EC output query");
-            }
-            wait_for_timing_hint(hint);
-            ezo_ec_output_config_t output_config{};
-            result = ezo_ec_read_output_config_i2c(device, &output_config);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read EC output query");
-            }
-
-            hint = ezo_timing_hint_t{};
-            result = ezo_ec_send_read_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send EC read");
-            }
-            wait_for_timing_hint(hint);
-
-            ezo_ec_reading_t reading{};
-            result = ezo_ec_read_response_i2c(device, output_config.enabled_mask, &reading);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read EC response");
-            }
-
-            if ((reading.present_mask & EZO_EC_OUTPUT_CONDUCTIVITY) != 0) {
-                set_signal_value(*signals_out, 0, reading.conductivity_us_cm);
-            } else {
-                set_signal_unavailable(*signals_out, 0, "conductivity output disabled on device");
-            }
-            if ((reading.present_mask & EZO_EC_OUTPUT_TOTAL_DISSOLVED_SOLIDS) != 0) {
-                set_signal_value(*signals_out, 1, reading.total_dissolved_solids_ppm);
-            } else {
-                set_signal_unavailable(*signals_out, 1, "tds output disabled on device");
-            }
-            if ((reading.present_mask & EZO_EC_OUTPUT_SALINITY) != 0) {
-                set_signal_value(*signals_out, 2, reading.salinity_ppt);
-            } else {
-                set_signal_unavailable(*signals_out, 2, "salinity output disabled on device");
-            }
-            if ((reading.present_mask & EZO_EC_OUTPUT_SPECIFIC_GRAVITY) != 0) {
-                set_signal_value(*signals_out, 3, reading.specific_gravity);
-            } else {
-                set_signal_unavailable(*signals_out, 3, "specific gravity output disabled on device");
-            }
-            return i2c::Status::ok();
-        }
-        case EzoDeviceType::Do: {
-            ezo_timing_hint_t hint{};
-            ezo_result_t result = ezo_do_send_output_query_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send DO output query");
-            }
-            wait_for_timing_hint(hint);
-            ezo_do_output_config_t output_config{};
-            result = ezo_do_read_output_config_i2c(device, &output_config);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read DO output query");
-            }
-
-            hint = ezo_timing_hint_t{};
-            result = ezo_do_send_read_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send DO read");
-            }
-            wait_for_timing_hint(hint);
-
-            ezo_do_reading_t reading{};
-            result = ezo_do_read_response_i2c(device, output_config.enabled_mask, &reading);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read DO response");
-            }
-
-            if ((reading.present_mask & EZO_DO_OUTPUT_MG_L) != 0) {
-                set_signal_value(*signals_out, 0, reading.milligrams_per_liter);
-            } else {
-                set_signal_unavailable(*signals_out, 0, "mg/l output disabled on device");
-            }
-            if ((reading.present_mask & EZO_DO_OUTPUT_PERCENT_SATURATION) != 0) {
-                set_signal_value(*signals_out, 1, reading.percent_saturation);
-            } else {
-                set_signal_unavailable(*signals_out, 1, "saturation output disabled on device");
-            }
-            return i2c::Status::ok();
-        }
-        case EzoDeviceType::Hum: {
-            ezo_timing_hint_t hint{};
-            ezo_result_t result = ezo_hum_send_output_query_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send HUM output query");
-            }
-            wait_for_timing_hint(hint);
-            ezo_hum_output_config_t output_config{};
-            result = ezo_hum_read_output_config_i2c(device, &output_config);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read HUM output query");
-            }
-
-            hint = ezo_timing_hint_t{};
-            result = ezo_hum_send_read_i2c(device, &hint);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "send HUM read");
-            }
-            wait_for_timing_hint(hint);
-
-            ezo_hum_reading_t reading{};
-            result = ezo_hum_read_response_i2c(device, output_config.enabled_mask, &reading);
-            if (result != EZO_OK) {
-                return status_from_ezo_result(result, "read HUM response");
-            }
-
-            if ((reading.present_mask & EZO_HUM_OUTPUT_HUMIDITY) != 0) {
-                set_signal_value(*signals_out, 0, reading.relative_humidity_percent);
-            } else {
-                set_signal_unavailable(*signals_out, 0, "humidity output disabled on device");
-            }
-            if ((reading.present_mask & EZO_HUM_OUTPUT_AIR_TEMPERATURE) != 0) {
-                set_signal_value(*signals_out, 1, reading.air_temperature_c);
-            } else {
-                set_signal_unavailable(*signals_out, 1, "air temperature output disabled on device");
-            }
-            if ((reading.present_mask & EZO_HUM_OUTPUT_DEW_POINT) != 0) {
-                set_signal_value(*signals_out, 2, reading.dew_point_c);
-            } else {
-                set_signal_unavailable(*signals_out, 2, "dew point output disabled on device");
-            }
-            return i2c::Status::ok();
-        }
-    }
-
-    return make_status(i2c::StatusCode::Internal, "unsupported device type in sample read");
+    return devices::adapter_for(spec.type).read_sample(device, *signals_out);
 }
 
 void build_mock_sample(const DeviceSpec &spec, uint64_t sequence, std::vector<SignalSample> *signals_out) {
-    initialize_signal_samples(spec.type, signals_out);
     if (signals_out == nullptr) {
         return;
     }
-
-    const double base = static_cast<double>((spec.address % 17) + 1) * 0.1;
-    const double delta = static_cast<double>(sequence % 25) * 0.01;
-
-    switch (spec.type) {
-        case EzoDeviceType::Ph:
-            set_signal_value(*signals_out, 0, 6.5 + base + delta);
-            break;
-        case EzoDeviceType::Orp:
-            set_signal_value(*signals_out, 0, 250.0 + (base * 10.0) + (delta * 100.0));
-            break;
-        case EzoDeviceType::Rtd:
-            set_signal_value(*signals_out, 0, 20.0 + base + delta);
-            break;
-        case EzoDeviceType::Ec:
-            set_signal_value(*signals_out, 0, 700.0 + (base * 100.0) + (delta * 100.0));
-            set_signal_value(*signals_out, 1, 350.0 + (base * 50.0) + (delta * 80.0));
-            set_signal_unavailable(*signals_out, 2, "salinity output disabled on device");
-            set_signal_unavailable(*signals_out, 3, "specific gravity output disabled on device");
-            break;
-        case EzoDeviceType::Do:
-            set_signal_value(*signals_out, 0, 7.0 + base + delta);
-            set_signal_unavailable(*signals_out, 1, "saturation output disabled on device");
-            break;
-        case EzoDeviceType::Hum:
-            set_signal_value(*signals_out, 0, 45.0 + (base * 5.0) + (delta * 10.0));
-            set_signal_value(*signals_out, 1, 22.0 + base + delta);
-            set_signal_unavailable(*signals_out, 2, "dew point output disabled on device");
-            break;
-    }
+    devices::adapter_for(spec.type).build_mock_sample(spec.address, sequence, *signals_out);
 }
 
 std::string build_startup_message(const RuntimeState &state) {
