@@ -15,7 +15,7 @@ constexpr SignalDefinition kSignals[] = {
     {"orp_millivolts", "ORP", "Latest ORP measurement", "mV", true},
 };
 
-i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<runtime::SignalSample> &out) {
+i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out) {
     initialize_signal_samples(kSignals, std::size(kSignals), out);
 
     ezo_timing_hint_t hint{};
@@ -33,7 +33,7 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<runtime::SignalSam
     return i2c::Status::ok();
 }
 
-void build_mock_sample(int address, uint64_t sequence, std::vector<runtime::SignalSample> &out) {
+void build_mock_sample(int address, uint64_t sequence, std::vector<SignalSample> &out) {
     initialize_signal_samples(kSignals, std::size(kSignals), out);
     set_signal_value(out, 0, 250.0 + (mock_base(address) * 10.0) + (mock_delta(sequence) * 100.0));
 }

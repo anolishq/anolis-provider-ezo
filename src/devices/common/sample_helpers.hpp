@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-#include "core/runtime_state.hpp"
 #include "devices/common/signal_definition.hpp"
+#include "devices/common/signal_sample.hpp"
 #include "i2c/session.hpp"
 
 extern "C" {
@@ -33,14 +33,13 @@ void wait_for_timing_hint(const ezo_timing_hint_t &hint);
 i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &context);
 
 /** @brief Mark a signal slot as available and carrying a value. */
-void set_signal_value(std::vector<runtime::SignalSample> &signals, std::size_t index, double value);
+void set_signal_value(std::vector<SignalSample> &signals, std::size_t index, double value);
 
 /** @brief Mark a signal slot as unavailable with a reason. */
-void set_signal_unavailable(std::vector<runtime::SignalSample> &signals, std::size_t index, const std::string &reason);
+void set_signal_unavailable(std::vector<SignalSample> &signals, std::size_t index, const std::string &reason);
 
 /** @brief Reset the output vector to one empty slot per declared signal. */
-void initialize_signal_samples(const SignalDefinition *defs, std::size_t count,
-                               std::vector<runtime::SignalSample> &signals_out);
+void initialize_signal_samples(const SignalDefinition *defs, std::size_t count, std::vector<SignalSample> &signals_out);
 
 /** @brief Deterministic per-address base offset used by the mock samplers. */
 double mock_base(int address);

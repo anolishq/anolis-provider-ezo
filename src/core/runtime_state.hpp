@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "config/provider_config.hpp"
+#include "devices/common/signal_sample.hpp"
 #include "i2c/bus_executor.hpp"
 #include "protocol.pb.h"
 
@@ -22,12 +23,9 @@ using Device = anolis::deviceprovider::v1::Device;
 /**
  * @brief One signal sample slot in the cached device sample.
  */
-struct SignalSample {
-    bool available = true;
-    bool has_value = false;
-    double value = 0.0;
-    std::string unavailable_reason;
-};
+// The per-signal read result is owned by the device layer; the runtime aliases
+// it so its sample cache and existing call sites are unchanged.
+using SignalSample = devices::SignalSample;
 
 /**
  * @brief Cached sample and read-history state for one active device.
