@@ -17,22 +17,25 @@ This document locks the v1 contract surface.
 2. `set_led`
 3. `sleep`
 
-## Function IDs (provider-local stable IDs)
+## Function IDs (per-type, contiguous from 1)
 
-1. `1001` -> `find`
-2. `1002` -> `set_led`
-3. `1003` -> `sleep`
+Every EZO family exposes the same three control functions, numbered `{1..3}` per
+the Anolis executable profile (§4):
+
+1. `1` -> `find`
+2. `2` -> `set_led`
+3. `3` -> `sleep`
 
 ## Signal table
 
 | Family | Type ID          | Signal IDs                                                                      | Notes                                                       |
 | ------ | ---------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| pH     | `sensor.ezo.ph`  | `ph.value`                                                                      | scalar                                                      |
-| ORP    | `sensor.ezo.orp` | `orp.millivolts`                                                                | scalar                                                      |
-| EC     | `sensor.ezo.ec`  | `ec.conductivity_us_cm`, `ec.tds_ppm`, `ec.salinity_psu`, `ec.specific_gravity` | fixed signal set; unavailable outputs return non-OK quality |
-| DO     | `sensor.ezo.do`  | `do.mg_l`, `do.saturation_pct`                                                  | fixed signal set; unavailable outputs return non-OK quality |
-| RTD    | `sensor.ezo.rtd` | `rtd.temperature_c`                                                             | scalar                                                      |
-| HUM    | `sensor.ezo.hum` | `hum.relative_humidity_pct`, `hum.temperature_c`, `hum.dew_point_c`             | fixed signal set; unavailable outputs return non-OK quality |
+| pH     | `sensor.ezo.ph`  | `ph_value`                                                                      | scalar                                                      |
+| ORP    | `sensor.ezo.orp` | `orp_millivolts`                                                                | scalar                                                      |
+| EC     | `sensor.ezo.ec`  | `ec_conductivity_us_cm`, `ec_tds_ppm`, `ec_salinity_psu`, `ec_specific_gravity` | fixed signal set; unavailable outputs return non-OK quality |
+| DO     | `sensor.ezo.do`  | `do_mg_l`, `do_saturation_pct`                                                  | fixed signal set; unavailable outputs return non-OK quality |
+| RTD    | `sensor.ezo.rtd` | `rtd_temperature_c`                                                             | scalar                                                      |
+| HUM    | `sensor.ezo.hum` | `hum_relative_humidity_pct`, `hum_temperature_c`, `hum_dew_point_c`             | fixed signal set; unavailable outputs return non-OK quality |
 
 ## Quality policy
 

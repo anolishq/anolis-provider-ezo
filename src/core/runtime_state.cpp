@@ -62,33 +62,33 @@ struct SignalDefinition {
 };
 
 constexpr SignalDefinition kPhSignals[] = {
-    {"ph.value", "pH", "Latest pH measurement", "pH", true},
+    {"ph_value", "pH", "Latest pH measurement", "pH", true},
 };
 
 constexpr SignalDefinition kOrpSignals[] = {
-    {"orp.millivolts", "ORP", "Latest ORP measurement", "mV", true},
+    {"orp_millivolts", "ORP", "Latest ORP measurement", "mV", true},
 };
 
 constexpr SignalDefinition kEcSignals[] = {
-    {"ec.conductivity_us_cm", "EC Conductivity", "Electrical conductivity", "uS/cm", true},
-    {"ec.tds_ppm", "EC TDS", "Total dissolved solids", "ppm", false},
-    {"ec.salinity_psu", "EC Salinity", "Salinity", "psu", false},
-    {"ec.specific_gravity", "EC Specific Gravity", "Specific gravity", "sg", false},
+    {"ec_conductivity_us_cm", "EC Conductivity", "Electrical conductivity", "uS/cm", true},
+    {"ec_tds_ppm", "EC TDS", "Total dissolved solids", "ppm", false},
+    {"ec_salinity_psu", "EC Salinity", "Salinity", "psu", false},
+    {"ec_specific_gravity", "EC Specific Gravity", "Specific gravity", "sg", false},
 };
 
 constexpr SignalDefinition kDoSignals[] = {
-    {"do.mg_l", "Dissolved Oxygen (mg/L)", "Dissolved oxygen concentration", "mg/L", true},
-    {"do.saturation_pct", "Dissolved Oxygen (%)", "Dissolved oxygen percent saturation", "%", false},
+    {"do_mg_l", "Dissolved Oxygen (mg/L)", "Dissolved oxygen concentration", "mg/L", true},
+    {"do_saturation_pct", "Dissolved Oxygen (%)", "Dissolved oxygen percent saturation", "%", false},
 };
 
 constexpr SignalDefinition kRtdSignals[] = {
-    {"rtd.temperature_c", "RTD Temperature", "Temperature reading", "C", true},
+    {"rtd_temperature_c", "RTD Temperature", "Temperature reading", "C", true},
 };
 
 constexpr SignalDefinition kHumSignals[] = {
-    {"hum.relative_humidity_pct", "Humidity", "Relative humidity", "%", true},
-    {"hum.temperature_c", "Air Temperature", "Ambient air temperature", "C", true},
-    {"hum.dew_point_c", "Dew Point", "Dew point temperature", "C", false},
+    {"hum_relative_humidity_pct", "Humidity", "Relative humidity", "%", true},
+    {"hum_temperature_c", "Air Temperature", "Ambient air temperature", "C", true},
+    {"hum_dew_point_c", "Dew Point", "Dew point temperature", "C", false},
 };
 
 bool has_prefix(const std::string &value, const std::string &prefix) { return value.rfind(prefix, 0) == 0; }
