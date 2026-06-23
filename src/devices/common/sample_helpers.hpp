@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-#include "core/runtime_state.hpp"
 #include "devices/common/signal_definition.hpp"
+#include "devices/common/signal_sample.hpp"
 #include "i2c/session.hpp"
 
 extern "C" {
