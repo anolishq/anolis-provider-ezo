@@ -137,12 +137,12 @@ TEST(HandlersTest, DescribeDeviceReturnsDoCapabilitiesAndSafeFunctions) {
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     EXPECT_EQ(response.describe_device().device().device_id(), "do0");
     ASSERT_EQ(response.describe_device().capabilities().signals_size(), 2);
-    EXPECT_EQ(response.describe_device().capabilities().signals(0).signal_id(), "do.mg_l");
-    EXPECT_EQ(response.describe_device().capabilities().signals(1).signal_id(), "do.saturation_pct");
+    EXPECT_EQ(response.describe_device().capabilities().signals(0).signal_id(), "do_mg_l");
+    EXPECT_EQ(response.describe_device().capabilities().signals(1).signal_id(), "do_saturation_pct");
     ASSERT_EQ(response.describe_device().capabilities().functions_size(), 3);
-    EXPECT_EQ(response.describe_device().capabilities().functions(0).function_id(), 1001U);
-    EXPECT_EQ(response.describe_device().capabilities().functions(1).function_id(), 1002U);
-    EXPECT_EQ(response.describe_device().capabilities().functions(2).function_id(), 1003U);
+    EXPECT_EQ(response.describe_device().capabilities().functions(0).function_id(), 1U);
+    EXPECT_EQ(response.describe_device().capabilities().functions(1).function_id(), 2U);
+    EXPECT_EQ(response.describe_device().capabilities().functions(2).function_id(), 3U);
 }
 
 TEST(HandlersTest, ReadSignalsReturnsDoFixedSignalSurfaceWithUnavailableMetadata) {
@@ -152,9 +152,9 @@ TEST(HandlersTest, ReadSignalsReturnsDoFixedSignalSurfaceWithUnavailableMetadata
     anolis::deviceprovider::v1::ReadSignalsRequest request;
     request.set_device_id("do0");
     // Request the full surface explicitly to exercise unavailable-signal metadata
-    // (the default set is curated to do.mg_l only; see the curated-default test).
-    request.add_signal_ids("do.mg_l");
-    request.add_signal_ids("do.saturation_pct");
+    // (the default set is curated to do_mg_l only; see the curated-default test).
+    request.add_signal_ids("do_mg_l");
+    request.add_signal_ids("do_saturation_pct");
 
     anolis::deviceprovider::v1::Response response;
     anolis_provider_ezo::handlers::handle_read_signals(request, response);
@@ -162,9 +162,9 @@ TEST(HandlersTest, ReadSignalsReturnsDoFixedSignalSurfaceWithUnavailableMetadata
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     EXPECT_EQ(response.read_signals().device_id(), "do0");
     ASSERT_EQ(response.read_signals().values_size(), 2);
-    EXPECT_EQ(response.read_signals().values(0).signal_id(), "do.mg_l");
+    EXPECT_EQ(response.read_signals().values(0).signal_id(), "do_mg_l");
     EXPECT_EQ(response.read_signals().values(0).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_OK);
-    EXPECT_EQ(response.read_signals().values(1).signal_id(), "do.saturation_pct");
+    EXPECT_EQ(response.read_signals().values(1).signal_id(), "do_saturation_pct");
     EXPECT_EQ(response.read_signals().values(1).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_UNKNOWN);
     EXPECT_EQ(response.read_signals().values(1).metadata().at("unavailable"), "true");
 }
@@ -176,19 +176,19 @@ TEST(HandlersTest, ReadSignalsReturnsEcFixedSignalSurfaceWithUnavailableMetadata
     anolis::deviceprovider::v1::ReadSignalsRequest request;
     request.set_device_id("ec0");
     // Request the full surface explicitly (the default set is curated to
-    // ec.conductivity_us_cm only; see the curated-default test).
-    request.add_signal_ids("ec.conductivity_us_cm");
-    request.add_signal_ids("ec.tds_ppm");
-    request.add_signal_ids("ec.salinity_psu");
-    request.add_signal_ids("ec.specific_gravity");
+    // ec_conductivity_us_cm only; see the curated-default test).
+    request.add_signal_ids("ec_conductivity_us_cm");
+    request.add_signal_ids("ec_tds_ppm");
+    request.add_signal_ids("ec_salinity_psu");
+    request.add_signal_ids("ec_specific_gravity");
 
     anolis::deviceprovider::v1::Response response;
     anolis_provider_ezo::handlers::handle_read_signals(request, response);
 
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     ASSERT_EQ(response.read_signals().values_size(), 4);
-    EXPECT_EQ(response.read_signals().values(0).signal_id(), "ec.conductivity_us_cm");
-    EXPECT_EQ(response.read_signals().values(2).signal_id(), "ec.salinity_psu");
+    EXPECT_EQ(response.read_signals().values(0).signal_id(), "ec_conductivity_us_cm");
+    EXPECT_EQ(response.read_signals().values(2).signal_id(), "ec_salinity_psu");
     EXPECT_EQ(response.read_signals().values(2).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_UNKNOWN);
     EXPECT_EQ(response.read_signals().values(2).metadata().at("unavailable"), "true");
 }
@@ -199,14 +199,14 @@ TEST(HandlersTest, ReadSignalsReturnsOrpScalarSignal) {
 
     anolis::deviceprovider::v1::ReadSignalsRequest request;
     request.set_device_id("orp0");
-    request.add_signal_ids("orp.millivolts");
+    request.add_signal_ids("orp_millivolts");
 
     anolis::deviceprovider::v1::Response response;
     anolis_provider_ezo::handlers::handle_read_signals(request, response);
 
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     ASSERT_EQ(response.read_signals().values_size(), 1);
-    EXPECT_EQ(response.read_signals().values(0).signal_id(), "orp.millivolts");
+    EXPECT_EQ(response.read_signals().values(0).signal_id(), "orp_millivolts");
     EXPECT_EQ(response.read_signals().values(0).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_OK);
 }
 
@@ -216,14 +216,14 @@ TEST(HandlersTest, ReadSignalsReturnsRtdScalarSignal) {
 
     anolis::deviceprovider::v1::ReadSignalsRequest request;
     request.set_device_id("rtd0");
-    request.add_signal_ids("rtd.temperature_c");
+    request.add_signal_ids("rtd_temperature_c");
 
     anolis::deviceprovider::v1::Response response;
     anolis_provider_ezo::handlers::handle_read_signals(request, response);
 
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     ASSERT_EQ(response.read_signals().values_size(), 1);
-    EXPECT_EQ(response.read_signals().values(0).signal_id(), "rtd.temperature_c");
+    EXPECT_EQ(response.read_signals().values(0).signal_id(), "rtd_temperature_c");
     EXPECT_EQ(response.read_signals().values(0).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_OK);
 }
 
@@ -235,18 +235,18 @@ TEST(HandlersTest, ReadSignalsReturnsHumFixedSignalSurfaceWithUnavailableMetadat
     request.set_device_id("hum0");
     // Request the full surface explicitly (the default set is curated to
     // relative_humidity_pct + temperature_c; see the curated-default test).
-    request.add_signal_ids("hum.relative_humidity_pct");
-    request.add_signal_ids("hum.temperature_c");
-    request.add_signal_ids("hum.dew_point_c");
+    request.add_signal_ids("hum_relative_humidity_pct");
+    request.add_signal_ids("hum_temperature_c");
+    request.add_signal_ids("hum_dew_point_c");
 
     anolis::deviceprovider::v1::Response response;
     anolis_provider_ezo::handlers::handle_read_signals(request, response);
 
     EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
     ASSERT_EQ(response.read_signals().values_size(), 3);
-    EXPECT_EQ(response.read_signals().values(0).signal_id(), "hum.relative_humidity_pct");
+    EXPECT_EQ(response.read_signals().values(0).signal_id(), "hum_relative_humidity_pct");
     EXPECT_EQ(response.read_signals().values(0).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_OK);
-    EXPECT_EQ(response.read_signals().values(2).signal_id(), "hum.dew_point_c");
+    EXPECT_EQ(response.read_signals().values(2).signal_id(), "hum_dew_point_c");
     EXPECT_EQ(response.read_signals().values(2).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_UNKNOWN);
     EXPECT_EQ(response.read_signals().values(2).metadata().at("unavailable"), "true");
 }
@@ -264,7 +264,7 @@ TEST(HandlersTest, ReadSignalsDefaultSetIsCuratedSubset) {
         anolis_provider_ezo::handlers::handle_read_signals(request, response);
         EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
         ASSERT_EQ(response.read_signals().values_size(), 1);
-        EXPECT_EQ(response.read_signals().values(0).signal_id(), "ec.conductivity_us_cm");
+        EXPECT_EQ(response.read_signals().values(0).signal_id(), "ec_conductivity_us_cm");
     }
 
     // Humidity declares 3 signals but defaults to RH + air temperature (dew point
@@ -276,8 +276,8 @@ TEST(HandlersTest, ReadSignalsDefaultSetIsCuratedSubset) {
         anolis_provider_ezo::handlers::handle_read_signals(request, response);
         EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
         ASSERT_EQ(response.read_signals().values_size(), 2);
-        EXPECT_EQ(response.read_signals().values(0).signal_id(), "hum.relative_humidity_pct");
-        EXPECT_EQ(response.read_signals().values(1).signal_id(), "hum.temperature_c");
+        EXPECT_EQ(response.read_signals().values(0).signal_id(), "hum_relative_humidity_pct");
+        EXPECT_EQ(response.read_signals().values(1).signal_id(), "hum_temperature_c");
     }
 }
 

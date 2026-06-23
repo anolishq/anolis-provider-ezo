@@ -91,9 +91,12 @@ struct RuntimeState {
     std::string i2c_status_message = "not initialized";
 };
 
-constexpr uint32_t kFunctionFind = 1001;
-constexpr uint32_t kFunctionSetLed = 1002;
-constexpr uint32_t kFunctionSleep = 1003;
+// [executable-profile §4] Per-type function_ids, contiguous {1..N}. These three
+// control functions are common to every EZO family, so each device declares the
+// same set numbered from 1.
+constexpr uint32_t kFunctionFind = 1;
+constexpr uint32_t kFunctionSetLed = 2;
+constexpr uint32_t kFunctionSleep = 3;
 
 /** @brief Reset global runtime state and stop any running executor. */
 void reset();
