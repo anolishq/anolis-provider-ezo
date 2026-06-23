@@ -34,7 +34,7 @@ i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &conte
     return make_status(i2c::StatusCode::Internal, context + ": " + ezo_result_name(result));
 }
 
-void set_signal_value(std::vector<runtime::SignalSample> &signals, std::size_t index, double value) {
+void set_signal_value(std::vector<SignalSample> &signals, std::size_t index, double value) {
     if (index >= signals.size()) {
         return;
     }
@@ -44,7 +44,7 @@ void set_signal_value(std::vector<runtime::SignalSample> &signals, std::size_t i
     signals[index].unavailable_reason.clear();
 }
 
-void set_signal_unavailable(std::vector<runtime::SignalSample> &signals, std::size_t index, const std::string &reason) {
+void set_signal_unavailable(std::vector<SignalSample> &signals, std::size_t index, const std::string &reason) {
     if (index >= signals.size()) {
         return;
     }
@@ -55,9 +55,9 @@ void set_signal_unavailable(std::vector<runtime::SignalSample> &signals, std::si
 }
 
 void initialize_signal_samples(const SignalDefinition *defs, std::size_t count,
-                               std::vector<runtime::SignalSample> &signals_out) {
+                               std::vector<SignalSample> &signals_out) {
     (void)defs;
-    signals_out.assign(count, runtime::SignalSample{});
+    signals_out.assign(count, SignalSample{});
 }
 
 double mock_base(int address) { return static_cast<double>((address % 17) + 1) * 0.1; }

@@ -46,4 +46,4 @@ the Anolis executable profile (§4):
 ## Notes
 
 1. HUM/EC/DO field-level mappings are fixed for v1; unavailable outputs are represented with non-OK quality and metadata, not by removing signals.
-2. Signal IDs are lower_snake_case segments with dot-separated namespace prefixes.
+2. Signal IDs are flat lower_snake_case (`^[a-z][a-z0-9_]*$`), per the Anolis executable profile §4.

@@ -15,7 +15,6 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "core/health.hpp"
@@ -140,10 +139,10 @@ const FunctionSpec *find_function_by_name(const runtime::ActiveDevice &device, c
     return nullptr;
 }
 
-i2c::Status make_i2c_status(i2c::StatusCode code, const std::string &message) { return i2c::Status{code, message}; }
-
-// EZO error mapping and timing waits are shared with the device-adapter modules
-// (src/devices/common). Device-type → product mapping is the adapter's metadata.
+// EZO error mapping, status construction, and timing waits are shared with the
+// device-adapter modules (src/devices/common). Device-type → product mapping is
+// the adapter's metadata.
+using devices::make_status;
 using devices::status_from_ezo_result;
 using devices::wait_for_timing_hint;
 
@@ -232,7 +231,7 @@ i2c::Status execute_safe_call(const runtime::RuntimeState &state, const runtime:
 
     const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
-        return make_i2c_status(i2c::StatusCode::Internal, "unsupported configured device type for control call");
+        return make_status(i2c::StatusCode::Internal, "unsupported configured device type for control call");
     }
 
     // All control operations traverse the same executor used for reads and
@@ -260,7 +259,7 @@ i2c::Status execute_safe_call(const runtime::RuntimeState &state, const runtime:
                     result = ezo_control_send_sleep_i2c(&binding.device, product_id, &hint);
                     break;
                 default:
-                    return make_i2c_status(i2c::StatusCode::InvalidArgument, "unsupported function_id");
+                    return make_status(i2c::StatusCode::InvalidArgument, "unsupported function_id");
             }
 
             if (result != EZO_OK) {

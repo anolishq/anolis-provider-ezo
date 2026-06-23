@@ -227,6 +227,23 @@ TEST(HandlersTest, ReadSignalsReturnsRtdScalarSignal) {
     EXPECT_EQ(response.read_signals().values(0).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_OK);
 }
 
+TEST(HandlersTest, ReadSignalsReturnsPhScalarSignal) {
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(make_full_config());
+
+    anolis::deviceprovider::v1::ReadSignalsRequest request;
+    request.set_device_id("ph0");
+    request.add_signal_ids("ph_value");
+
+    anolis::deviceprovider::v1::Response response;
+    anolis_provider_ezo::handlers::handle_read_signals(request, response);
+
+    EXPECT_EQ(response.status().code(), anolis::deviceprovider::v1::Status::CODE_OK);
+    ASSERT_EQ(response.read_signals().values_size(), 1);
+    EXPECT_EQ(response.read_signals().values(0).signal_id(), "ph_value");
+    EXPECT_EQ(response.read_signals().values(0).quality(), anolis::deviceprovider::v1::SignalValue::QUALITY_OK);
+}
+
 TEST(HandlersTest, ReadSignalsReturnsHumFixedSignalSurfaceWithUnavailableMetadata) {
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(make_full_config());

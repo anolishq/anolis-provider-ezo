@@ -26,14 +26,10 @@
 #include "logging/logger.hpp"
 
 extern "C" {
+// Per-family read headers (ezo_ph.h, ezo_ec.h, …) now live in the per-family
+// adapter modules; runtime_state only needs control + product identity.
 #include "ezo_control.h"
-#include "ezo_do.h"
-#include "ezo_ec.h"
-#include "ezo_hum.h"
-#include "ezo_orp.h"
-#include "ezo_ph.h"
 #include "ezo_product.h"
-#include "ezo_rtd.h"
 }
 
 namespace anolis_provider_ezo::runtime {

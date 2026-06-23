@@ -17,8 +17,8 @@
 #include <vector>
 
 #include "config/provider_config.hpp"
-#include "core/runtime_state.hpp"
 #include "devices/common/signal_definition.hpp"
+#include "devices/common/signal_sample.hpp"
 #include "i2c/session.hpp"
 
 extern "C" {
@@ -33,8 +33,8 @@ struct DeviceAdapter {
     const char *type_id;
     const SignalDefinition *signals;
     std::size_t signal_count;
-    i2c::Status (*read_sample)(ezo_i2c_device_t *device, std::vector<runtime::SignalSample> &out);
-    void (*build_mock_sample)(int address, uint64_t sequence, std::vector<runtime::SignalSample> &out);
+    i2c::Status (*read_sample)(ezo_i2c_device_t *device, std::vector<SignalSample> &out);
+    void (*build_mock_sample)(int address, uint64_t sequence, std::vector<SignalSample> &out);
 };
 
 /** @brief The adapter for a device family. Exhaustive over EzoDeviceType. */
