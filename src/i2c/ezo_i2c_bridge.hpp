@@ -18,8 +18,8 @@ namespace anolis_provider_ezo::i2c {
  * transport.
  */
 struct EzoDeviceBinding {
-  ezo_i2c_device_t device{};
-  bool initialized = false;
+    ezo_i2c_device_t device{};
+    bool initialized = false;
 };
 
 /**
@@ -29,7 +29,6 @@ struct EzoDeviceBinding {
  * The resulting binding borrows `session`; callers must ensure the session
  * outlives any use of `binding.device`.
  */
-Status bind_ezo_i2c_device(ISession &session, uint8_t address,
-                           EzoDeviceBinding &binding);
+Status bind_ezo_i2c_device(ISession &session, uint8_t address, EzoDeviceBinding &binding);
 
-} // namespace anolis_provider_ezo::i2c
+}  // namespace anolis_provider_ezo::i2c
