@@ -31,8 +31,7 @@ void handle_wait_ready(const WaitReadyRequest &request, Response &response);
 void handle_list_devices(const ListDevicesRequest &request, Response &response);
 
 /** @brief Describe one active device and its fixed capability surface. */
-void handle_describe_device(const DescribeDeviceRequest &request,
-                            Response &response);
+void handle_describe_device(const DescribeDeviceRequest &request, Response &response);
 
 /**
  * @brief Return signal values for one device, refreshing the cached sample when
@@ -50,7 +49,6 @@ void handle_get_health(const GetHealthRequest &request, Response &response);
 
 /** @brief Return a standard unimplemented response for unsupported operations.
  */
-void handle_unimplemented(Response &response, const std::string &message =
-                                                  "operation not implemented");
+void handle_unimplemented(Response &response, const std::string &message = "operation not implemented");
 
-} // namespace anolis_provider_ezo::handlers
+}  // namespace anolis_provider_ezo::handlers

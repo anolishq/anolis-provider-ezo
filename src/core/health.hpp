@@ -21,11 +21,9 @@ using WaitReadyResponse = anolis::deviceprovider::v1::WaitReadyResponse;
 ProviderHealth make_provider_health(const runtime::RuntimeState &state);
 
 /** @brief Build per-device health views from the current runtime snapshot. */
-std::vector<DeviceHealth> make_device_health(const runtime::RuntimeState &state,
-                                             bool include_excluded = true);
+std::vector<DeviceHealth> make_device_health(const runtime::RuntimeState &state, bool include_excluded = true);
 
 /** @brief Populate the ADPP `WaitReady` response from runtime state. */
-void populate_wait_ready(const runtime::RuntimeState &state,
-                         WaitReadyResponse &out);
+void populate_wait_ready(const runtime::RuntimeState &state, WaitReadyResponse &out);
 
-} // namespace anolis_provider_ezo::health
+}  // namespace anolis_provider_ezo::health
