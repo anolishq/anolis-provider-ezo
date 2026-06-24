@@ -224,20 +224,29 @@ bool resolve_call_timeout(const CallRequest &request, int default_timeout_ms, st
     return true;
 }
 
-i2c::Status execute_safe_call(const runtime::RuntimeState &state, const runtime::ActiveDevice &device,
+// Outcome of a control call, already mapped into the ADPP status vocabulary at
+// this adapter boundary so the handler never sees the provider-local
+// i2c::StatusCode (1-stage error mapping for the call path).
+struct CallOutcome {
+    Status::Code code = Status::CODE_OK;
+    std::string message = "ok";
+    bool ok() const { return code == Status::CODE_OK; }
+};
+
+CallOutcome execute_safe_call(const runtime::RuntimeState &state, const runtime::ActiveDevice &device,
                               uint32_t function_id, bool set_led_enabled, std::chrono::milliseconds timeout) {
     if (is_mock_mode(state)) {
-        return i2c::Status::ok();
+        return {};
     }
 
     const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
-        return make_status(i2c::StatusCode::Internal, "unsupported configured device type for control call");
+        return {Status::CODE_INTERNAL, "unsupported configured device type for control call"};
     }
 
     // All control operations traverse the same executor used for reads and
     // startup probes so safe calls cannot interleave with other bus traffic.
-    return runtime::submit_i2c_job(
+    const i2c::Status status = runtime::submit_i2c_job(
         "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout, [&](i2c::ISession &session) {
             i2c::EzoDeviceBinding binding;
             i2c::Status bind_status =
@@ -270,6 +279,7 @@ i2c::Status execute_safe_call(const runtime::RuntimeState &state, const runtime:
             wait_for_timing_hint(hint);
             return i2c::Status::ok();
         });
+    return {map_i2c_status_code(status.code), status.message};
 }
 
 Value make_bool_value(bool value) {
@@ -527,13 +537,13 @@ void handle_call(const CallRequest &request, Response &response) {
         return;
     }
 
-    const i2c::Status call_status =
+    const CallOutcome call_status =
         execute_safe_call(state, *device, function_spec->function_id(), set_led_enabled, timeout);
-    if (!call_status.is_ok()) {
+    if (!call_status.ok()) {
         runtime::record_call_result(request.device_id(), function_spec->name(), false, call_status.message);
         logging::warning("call failed for device '" + request.device_id() + "' function '" + function_spec->name() +
                          "': " + call_status.message);
-        set_status(response, map_i2c_status_code(call_status.code), call_status.message);
+        set_status(response, call_status.code, call_status.message);
         return;
     }
 
