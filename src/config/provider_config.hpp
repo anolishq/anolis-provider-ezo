@@ -8,19 +8,9 @@
 #include <string>
 #include <vector>
 
-namespace anolis_provider_ezo {
+#include "devices/common/device_type.hpp"
 
-/**
- * @brief Supported EZO device families with fixed signal/function surfaces.
- */
-enum class EzoDeviceType {
-    Ph,
-    Orp,
-    Ec,
-    Do,
-    Rtd,
-    Hum,
-};
+namespace anolis_provider_ezo {
 
 /**
  * @brief Manually configured device entry for startup identity verification.
