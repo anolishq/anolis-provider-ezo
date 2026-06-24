@@ -22,6 +22,7 @@
 #include "core/transport/framed_stdio.hpp"
 #include "devices/common/device_adapter.hpp"
 #include "devices/common/sample_helpers.hpp"
+#include "devices/common/signal_quality.hpp"
 #include "i2c/ezo_i2c_bridge.hpp"
 #include "logging/logger.hpp"
 
@@ -305,17 +306,10 @@ void populate_signal_value(const runtime::RuntimeState &state, const runtime::Ac
     const auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - device.sample.sampled_at);
     const auto stale_ms = stale_after_ms(state);
 
-    SignalValue::Quality quality = SignalValue::QUALITY_UNKNOWN;
-    if (signal_sample == nullptr) {
-        quality = SignalValue::QUALITY_UNKNOWN;
-    } else if (!signal_sample->available) {
-        quality = SignalValue::QUALITY_UNKNOWN;
-    } else if (!device.sample.last_read_ok) {
-        quality = SignalValue::QUALITY_FAULT;
-    } else if (age_ms.count() > stale_ms) {
-        quality = SignalValue::QUALITY_STALE;
-    } else if (signal_sample->has_value) {
-        quality = SignalValue::QUALITY_OK;
+    SignalValue::Quality quality = SignalValue::QUALITY_UNKNOWN;  // no sample slot -> unknown
+    if (signal_sample != nullptr) {
+        quality = devices::quality_from(signal_sample->available, signal_sample->has_value, device.sample.last_read_ok,
+                                        age_ms.count(), stale_ms);
     }
     value->set_quality(quality);
 
