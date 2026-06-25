@@ -438,16 +438,23 @@ AdapterReadResult read_device_signals(runtime::RuntimeState state, const std::st
     if (!device->sample.has_sample) {
         return {false, Status::CODE_UNAVAILABLE, "no sample available", {}};
     }
-    if (has_min_timestamp && device->sample.sampled_at < min_timestamp) {
-        return {false, Status::CODE_DEADLINE_EXCEEDED, "no sample available at or newer than min_timestamp", {}};
-    }
+
+    // semantics.md §7.3: min_timestamp is a best-effort freshness HINT, not a hard
+    // deadline. If the freshest available sample is older than requested, return it
+    // (CODE_OK) and flag the unmet freshness via QUALITY_STALE rather than failing
+    // the read with DEADLINE_EXCEEDED.
+    const bool freshness_unmet = has_min_timestamp && device->sample.sampled_at < min_timestamp;
 
     AdapterReadResult result;
     result.ok = true;
     result.error_code = Status::CODE_OK;
     result.values.reserve(requested_signal_indexes.size());
     for (const size_t signal_index : requested_signal_indexes) {
-        populate_signal_value(state, *device, signal_index, &result.values.emplace_back());
+        SignalValue *value = &result.values.emplace_back();
+        populate_signal_value(state, *device, signal_index, value);
+        if (freshness_unmet && value->quality() == SignalValue::QUALITY_OK) {
+            value->set_quality(SignalValue::QUALITY_STALE);
+        }
     }
     return result;
 }
