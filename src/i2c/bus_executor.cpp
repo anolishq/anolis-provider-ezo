@@ -180,6 +180,8 @@ void BusExecutor::worker_loop() {
 void BusExecutor::safe_set_promise(std::promise<Status> &promise, const Status &status) {
     try {
         promise.set_value(status);
+        // Deliberate empty catch: the promise may already be satisfied / the waiter is gone.
+        // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (const std::future_error &) {
         // Promise already satisfied/caller no longer waiting.
     }

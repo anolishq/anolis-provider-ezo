@@ -9,6 +9,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <filesystem>
+#include <format>
 #include <iomanip>
 #include <regex>
 #include <set>
@@ -32,7 +33,7 @@ void reject_unknown_keys(const YAML::Node &node, const std::string &field_name,
     for (const auto &entry : node) {
         const std::string key = entry.first.as<std::string>();
         if (allowed_keys.find(key) == allowed_keys.end()) {
-            throw std::runtime_error("Unknown " + field_name + " key: '" + key + "'");
+            throw std::runtime_error(std::format("Unknown {} key: '{}'", field_name, key));
         }
     }
 }
@@ -61,7 +62,8 @@ int parse_int_value(const YAML::Node &node, const std::string &field_name, bool 
     try {
         const int value = std::stoi(text, nullptr, 10);
         if (value < 0 || (!allow_zero && value == 0)) {
-            throw std::runtime_error(field_name + " must be " + std::string(allow_zero ? "non-negative" : "positive"));
+            throw std::runtime_error(
+                std::format("{} must be {}", field_name, allow_zero ? "non-negative" : "positive"));
         }
         return value;
     } catch (const std::invalid_argument &) {
@@ -113,7 +115,7 @@ EzoDeviceType parse_device_type(const std::string &value) {
         return EzoDeviceType::Hum;
     }
 
-    throw std::runtime_error("Invalid devices[].type: '" + value + "'");
+    throw std::runtime_error(std::format("Invalid devices[].type: '{}'", value));
 }
 
 std::string to_string(EzoDeviceType type) {
@@ -146,7 +148,7 @@ ProviderConfig load_config(const std::string &path) {
     try {
         root = YAML::LoadFile(path);
     } catch (const YAML::Exception &e) {
-        throw std::runtime_error("Failed to parse config '" + path + "': " + e.what());
+        throw std::runtime_error(std::format("Failed to parse config '{}': {}", path, e.what()));
     }
 
     ensure_map(root, "root");
@@ -211,38 +213,38 @@ ProviderConfig load_config(const std::string &path) {
         for (std::size_t i = 0; i < devices_node.size(); ++i) {
             const YAML::Node device_node = devices_node[i];
             if (!device_node.IsMap()) {
-                throw std::runtime_error("devices[" + std::to_string(i) + "] must be a map");
+                throw std::runtime_error(std::format("devices[{}] must be a map", i));
             }
 
-            reject_unknown_keys(device_node, "devices[" + std::to_string(i) + "]", {"id", "type", "label", "address"});
+            reject_unknown_keys(device_node, std::format("devices[{}]", i), {"id", "type", "label", "address"});
 
             if (!device_node["id"]) {
-                throw std::runtime_error("devices[" + std::to_string(i) + "].id is required");
+                throw std::runtime_error(std::format("devices[{}].id is required", i));
             }
             if (!device_node["type"]) {
-                throw std::runtime_error("devices[" + std::to_string(i) + "].type is required");
+                throw std::runtime_error(std::format("devices[{}].type is required", i));
             }
             if (!device_node["address"]) {
-                throw std::runtime_error("devices[" + std::to_string(i) + "].address is required");
+                throw std::runtime_error(std::format("devices[{}].address is required", i));
             }
 
             DeviceSpec spec;
-            spec.id = require_scalar(device_node["id"], "devices[" + std::to_string(i) + "].id");
-            validate_identifier(spec.id, "devices[" + std::to_string(i) + "].id");
-            spec.type =
-                parse_device_type(require_scalar(device_node["type"], "devices[" + std::to_string(i) + "].type"));
+            spec.id = require_scalar(device_node["id"], std::format("devices[{}].id", i));
+            validate_identifier(spec.id, std::format("devices[{}].id", i));
+            spec.type = parse_device_type(require_scalar(device_node["type"], std::format("devices[{}].type", i)));
             spec.label = device_node["label"]
-                             ? require_scalar(device_node["label"], "devices[" + std::to_string(i) + "].label")
+                             ? require_scalar(device_node["label"], std::format("devices[{}].label", i))
                              : spec.id;
-            spec.address = parse_address_value(device_node["address"], "devices[" + std::to_string(i) + "].address");
+            spec.address = parse_address_value(device_node["address"], std::format("devices[{}].address", i));
 
             // IDs and addresses must be unique because health, call routing,
             // and startup exclusion diagnostics all key off these identities.
             if (!seen_ids.insert(spec.id).second) {
-                throw std::runtime_error("Duplicate devices[].id: '" + spec.id + "'");
+                throw std::runtime_error(std::format("Duplicate devices[].id: '{}'", spec.id));
             }
             if (!seen_addresses.insert(spec.address).second) {
-                throw std::runtime_error("Duplicate devices[].address: '" + format_i2c_address(spec.address) + "'");
+                throw std::runtime_error(
+                    std::format("Duplicate devices[].address: '{}'", format_i2c_address(spec.address)));
             }
 
             config.devices.push_back(spec);

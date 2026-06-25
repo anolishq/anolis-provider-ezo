@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -372,7 +373,7 @@ void initialize(const ProviderConfig &config) {
 
             std::string expected = to_string(spec.type);
             state.excluded_devices.push_back(
-                ExcludedDevice{spec, "type mismatch: configured " + expected + ", detected " + actual});
+                ExcludedDevice{spec, std::format("type mismatch: configured {}, detected {}", expected, actual)});
             continue;
         }
 
@@ -410,7 +411,8 @@ void initialize(const ProviderConfig &config) {
     for (const std::string &device_id : active_ids) {
         const i2c::Status refresh_status = refresh_device_sample(device_id);
         if (!refresh_status.is_ok()) {
-            logging::warning("startup sample failed for device '" + device_id + "': " + refresh_status.message);
+            logging::warning(
+                std::format("startup sample failed for device '{}': {}", device_id, refresh_status.message));
         }
     }
 }
@@ -491,7 +493,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     const int timeout_ms = std::max(config.timeout_ms, sample_period_ms(config) + 1500);
     // Sampling is funneled through the shared executor so reads, identity
     // queries, and safe control calls all share one bus-serialization point.
-    const i2c::Status status =
+    i2c::Status status =
         submit_i2c_job("sample:" + device_id, std::chrono::milliseconds(timeout_ms), [&](i2c::ISession &session) {
             i2c::EzoDeviceBinding binding;
             i2c::Status bind_status = i2c::bind_ezo_i2c_device(session, static_cast<uint8_t>(spec.address), binding);
