@@ -20,6 +20,7 @@
 #include "core/health.hpp"
 #include "core/runtime_state.hpp"
 #include "core/transport/framed_stdio.hpp"
+#include "devices/common/adapter_result.hpp"
 #include "devices/common/device_adapter.hpp"
 #include "devices/common/sample_helpers.hpp"
 #include "devices/common/signal_quality.hpp"
@@ -143,6 +144,8 @@ const FunctionSpec *find_function_by_name(const runtime::ActiveDevice &device, c
 // EZO error mapping, status construction, and timing waits are shared with the
 // device-adapter modules (src/devices/common). Device-type → product mapping is
 // the adapter's metadata.
+using devices::AdapterCallResult;
+using devices::AdapterReadResult;
 using devices::make_status;
 using devices::status_from_ezo_result;
 using devices::wait_for_timing_hint;
@@ -224,24 +227,18 @@ bool resolve_call_timeout(const CallRequest &request, int default_timeout_ms, st
     return true;
 }
 
-// Outcome of a control call, already mapped into the ADPP status vocabulary at
-// this adapter boundary so the handler never sees the provider-local
-// i2c::StatusCode (1-stage error mapping for the call path).
-struct CallOutcome {
-    Status::Code code = Status::CODE_OK;
-    std::string message = "ok";
-    bool ok() const { return code == Status::CODE_OK; }
-};
-
-CallOutcome execute_safe_call(const runtime::RuntimeState &state, const runtime::ActiveDevice &device,
-                              uint32_t function_id, bool set_led_enabled, std::chrono::milliseconds timeout) {
+// Execute one control call. The result is already mapped into the ADPP status
+// vocabulary at this adapter boundary so the handler never sees the
+// provider-local i2c::StatusCode (1-stage error mapping for the call path).
+AdapterCallResult execute_safe_call(const runtime::RuntimeState &state, const runtime::ActiveDevice &device,
+                                    uint32_t function_id, bool set_led_enabled, std::chrono::milliseconds timeout) {
     if (is_mock_mode(state)) {
-        return {};
+        return {true, Status::CODE_OK, ""};
     }
 
     const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
-        return {Status::CODE_INTERNAL, "unsupported configured device type for control call"};
+        return {false, Status::CODE_INTERNAL, "unsupported configured device type for control call"};
     }
 
     // All control operations traverse the same executor used for reads and
@@ -279,7 +276,7 @@ CallOutcome execute_safe_call(const runtime::RuntimeState &state, const runtime:
             wait_for_timing_hint(hint);
             return i2c::Status::ok();
         });
-    return {map_i2c_status_code(status.code), status.message};
+    return {status.is_ok(), map_i2c_status_code(status.code), status.message};
 }
 
 Value make_bool_value(bool value) {
@@ -396,6 +393,65 @@ void handle_describe_device(const DescribeDeviceRequest &request, Response &resp
     set_status_ok(response);
 }
 
+// Device-side read execution: refresh the cached sample if stale or to honor a
+// freshness hint, then project the requested signals into ADPP SignalValues.
+// Returns the neutral wrapped result (ADPP status + values); the request handler
+// owns the protocol shell (signal-id resolution, response assembly).
+AdapterReadResult read_device_signals(runtime::RuntimeState state, const std::string &device_id,
+                                      const std::vector<size_t> &requested_signal_indexes, bool has_min_timestamp,
+                                      std::chrono::system_clock::time_point min_timestamp) {
+    const runtime::ActiveDevice *device = find_device(state, device_id);
+    if (device == nullptr) {
+        return {false, Status::CODE_NOT_FOUND, "unknown device_id", {}};
+    }
+
+    bool needs_refresh = !device->sample.has_sample;
+    if (!needs_refresh) {
+        const auto now = std::chrono::system_clock::now();
+        const auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - device->sample.sampled_at);
+        if (age_ms.count() > sample_period_ms(state)) {
+            needs_refresh = true;
+        }
+    }
+    if (has_min_timestamp && (!device->sample.has_sample || device->sample.sampled_at < min_timestamp)) {
+        needs_refresh = true;
+    }
+
+    if (needs_refresh) {
+        const i2c::Status refresh_status = runtime::refresh_device_sample(device_id);
+        if (!refresh_status.is_ok()) {
+            logging::warning("read_signals refresh failed for '" + device_id + "': " + refresh_status.message);
+            state = runtime::snapshot();
+            device = find_device(state, device_id);
+            if (device == nullptr || !device->sample.has_sample) {
+                return {false, map_i2c_status_code(refresh_status.code), refresh_status.message, {}};
+            }
+        } else {
+            state = runtime::snapshot();
+            device = find_device(state, device_id);
+            if (device == nullptr) {
+                return {false, Status::CODE_NOT_FOUND, "unknown device_id", {}};
+            }
+        }
+    }
+
+    if (!device->sample.has_sample) {
+        return {false, Status::CODE_UNAVAILABLE, "no sample available", {}};
+    }
+    if (has_min_timestamp && device->sample.sampled_at < min_timestamp) {
+        return {false, Status::CODE_DEADLINE_EXCEEDED, "no sample available at or newer than min_timestamp", {}};
+    }
+
+    AdapterReadResult result;
+    result.ok = true;
+    result.error_code = Status::CODE_OK;
+    result.values.reserve(requested_signal_indexes.size());
+    for (const size_t signal_index : requested_signal_indexes) {
+        populate_signal_value(state, *device, signal_index, &result.values.emplace_back());
+    }
+    return result;
+}
+
 void handle_read_signals(const ReadSignalsRequest &request, Response &response) {
     if (request.device_id().empty()) {
         set_status(response, Status::CODE_INVALID_ARGUMENT, "device_id is required");
@@ -428,61 +484,26 @@ void handle_read_signals(const ReadSignalsRequest &request, Response &response) 
         requested_signal_indexes.push_back(static_cast<size_t>(index));
     }
 
-    bool needs_refresh = !device->sample.has_sample;
-    if (!needs_refresh) {
-        const auto now = std::chrono::system_clock::now();
-        const auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - device->sample.sampled_at);
-        if (age_ms.count() > sample_period_ms(state)) {
-            needs_refresh = true;
-        }
-    }
-
-    bool has_min_timestamp = false;
+    const bool has_min_timestamp = request.has_min_timestamp();
     std::chrono::system_clock::time_point min_timestamp{};
-    if (request.has_min_timestamp()) {
-        has_min_timestamp = true;
+    if (has_min_timestamp) {
         min_timestamp = from_proto_timestamp(request.min_timestamp());
-        if (!device->sample.has_sample || device->sample.sampled_at < min_timestamp) {
-            needs_refresh = true;
-        }
     }
 
-    if (needs_refresh) {
-        const i2c::Status refresh_status = runtime::refresh_device_sample(request.device_id());
-        if (!refresh_status.is_ok()) {
-            logging::warning("read_signals refresh failed for '" + request.device_id() +
-                             "': " + refresh_status.message);
-            state = runtime::snapshot();
-            device = find_device(state, request.device_id());
-            if (device == nullptr || !device->sample.has_sample) {
-                set_status(response, map_i2c_status_code(refresh_status.code), refresh_status.message);
-                return;
-            }
-        } else {
-            state = runtime::snapshot();
-            device = find_device(state, request.device_id());
-            if (device == nullptr) {
-                set_status(response, Status::CODE_NOT_FOUND, "unknown device_id");
-                return;
-            }
-        }
-    }
-
-    if (!device->sample.has_sample) {
-        set_status(response, Status::CODE_UNAVAILABLE, "no sample available");
-        return;
-    }
-    if (has_min_timestamp && device->sample.sampled_at < min_timestamp) {
-        set_status(response, Status::CODE_DEADLINE_EXCEEDED, "no sample available at or newer than min_timestamp");
+    // `device` points into `state`; it is not used past this point, so the
+    // snapshot moves into the read execution (which re-snapshots on refresh).
+    const AdapterReadResult result = read_device_signals(std::move(state), request.device_id(),
+                                                         requested_signal_indexes, has_min_timestamp, min_timestamp);
+    if (!result.ok) {
+        set_status(response, result.error_code, result.error_message);
         return;
     }
 
     auto *out = response.mutable_read_signals();
     out->set_device_id(request.device_id());
-    for (const size_t signal_index : requested_signal_indexes) {
-        populate_signal_value(state, *device, signal_index, out->add_values());
+    for (const SignalValue &value : result.values) {
+        *out->add_values() = value;
     }
-
     set_status_ok(response);
 }
 
@@ -537,13 +558,13 @@ void handle_call(const CallRequest &request, Response &response) {
         return;
     }
 
-    const CallOutcome call_status =
+    const AdapterCallResult call_status =
         execute_safe_call(state, *device, function_spec->function_id(), set_led_enabled, timeout);
-    if (!call_status.ok()) {
-        runtime::record_call_result(request.device_id(), function_spec->name(), false, call_status.message);
+    if (!call_status.ok) {
+        runtime::record_call_result(request.device_id(), function_spec->name(), false, call_status.error_message);
         logging::warning("call failed for device '" + request.device_id() + "' function '" + function_spec->name() +
-                         "': " + call_status.message);
-        set_status(response, call_status.code, call_status.message);
+                         "': " + call_status.error_message);
+        set_status(response, call_status.error_code, call_status.error_message);
         return;
     }
 
