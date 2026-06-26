@@ -59,6 +59,30 @@ TEST(EzoProviderRuntimeTest, InventoryAndMetadata) {
     EXPECT_EQ(rt.readiness().extra_diagnostics.at("init_time_ms"), "0");
 }
 
+TEST(EzoProviderRuntimeTest, DeviceHealthRestoresPerDeviceMetrics) {
+    // SDK#9: the device_health hook re-supplies ezo's per-device metrics + last_seen.
+    auto rt = make_ready_runtime();
+
+    const auto h = rt.device_health("ph0");
+    // Static identity + lifetime counters are always present.
+    EXPECT_EQ(h.metrics.at("type"), "ph");
+    EXPECT_EQ(h.metrics.at("address"), "0x63");
+    EXPECT_TRUE(h.metrics.contains("sample_success_count"));
+    EXPECT_TRUE(h.metrics.contains("sample_failure_count"));
+    EXPECT_TRUE(h.metrics.contains("call_success_count"));
+    EXPECT_TRUE(h.metrics.contains("call_failure_count"));
+    // ezo samples devices at startup, so a cached sample is present: last_seen and
+    // the age metrics are emitted, and (one snapshot) they are mutually consistent.
+    EXPECT_TRUE(h.last_seen.has_value());
+    EXPECT_TRUE(h.metrics.contains("sample_age_ms"));
+    EXPECT_TRUE(h.metrics.contains("sample_stale_after_ms"));
+
+    // An id the SDK may enumerate but that has no live handle is tolerated.
+    const auto ghost = rt.device_health("ghost");
+    EXPECT_TRUE(ghost.metrics.empty());
+    EXPECT_FALSE(ghost.last_seen.has_value());
+}
+
 TEST(EzoProviderRuntimeTest, ReadDefaultSetEmitsQualityAndMetadata) {
     auto rt = make_ready_runtime();
 
