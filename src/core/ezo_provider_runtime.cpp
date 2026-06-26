@@ -282,6 +282,65 @@ sdk::ReadinessReport EzoProviderRuntime::readiness() const {
     return r;
 }
 
+sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& device_id) const {
+    // Restore ezo's pre-migration per-device metrics (SDK#9) from ONE snapshot, so
+    // last_seen and the age metrics are a single atomic view. The per-device STATE
+    // nuance (STALE/FAULT) is intentionally NOT restored here: the SDK derives
+    // device state from readiness() (active -> OK, excluded -> UNREACHABLE); a
+    // per-device device_state hook is a separate deferred follow-up.
+    const runtime::RuntimeState state = runtime::snapshot();
+    sdk::DeviceHealthExtra extra;
+    auto& m = extra.metrics;
+
+    if (const runtime::ActiveDevice* device = find_device(state, device_id)) {
+        m["type"] = to_string(device->spec.type);
+        m["address"] = format_i2c_address(device->spec.address);
+        m["sample_success_count"] = std::to_string(device->sample.success_count);
+        m["sample_failure_count"] = std::to_string(device->sample.failure_count);
+        m["call_success_count"] = std::to_string(device->call_success_count);
+        m["call_failure_count"] = std::to_string(device->call_failure_count);
+        if (!device->startup_product_code.empty()) {
+            m["startup_product_code"] = device->startup_product_code;
+        }
+        if (!device->startup_firmware_version.empty()) {
+            m["startup_firmware"] = device->startup_firmware_version;
+        }
+        const auto now = std::chrono::system_clock::now();
+        if (device->sample.has_sample) {
+            const auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - device->sample.sampled_at);
+            m["sample_age_ms"] = std::to_string(age_ms.count());
+            m["sample_stale_after_ms"] = std::to_string(stale_after_ms(state));
+            extra.last_seen = to_proto_timestamp(device->sample.sampled_at);
+        }
+        if (device->has_last_call) {
+            m["last_call_function"] = device->last_call_function;
+            m["last_call_ok"] = device->last_call_ok ? "true" : "false";
+            const auto last_call_age_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - device->last_call_at);
+            m["last_call_age_ms"] = std::to_string(last_call_age_ms.count());
+            if (!device->last_call_error.empty()) {
+                m["last_call_error"] = device->last_call_error;
+            }
+        }
+        if (!device->sample.last_error.empty()) {
+            m["last_error"] = device->sample.last_error;
+        }
+        return extra;
+    }
+
+    // Excluded devices surface on get_health (readiness() maps them to
+    // failed_devices); restore their startup-identity metrics.
+    for (const auto& excluded : state.excluded_devices) {
+        if (excluded.spec.id == device_id) {
+            m["excluded"] = "true";
+            m["type"] = to_string(excluded.spec.type);
+            m["address"] = format_i2c_address(excluded.spec.address);
+            break;
+        }
+    }
+    return extra;
+}
+
 std::vector<std::string> EzoProviderRuntime::list_device_ids() const {
     const runtime::RuntimeState state = runtime::snapshot();
     std::vector<std::string> ids;
