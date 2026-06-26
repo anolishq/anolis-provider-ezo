@@ -1,20 +1,17 @@
 #include <exception>
 #include <iostream>
 #include <string>
-#include <vector>
 
+#include "anolis/provider_sdk/runtime.hpp"
 #include "config/provider_config.hpp"
-#include "core/handlers.hpp"
+#include "core/ezo_provider_runtime.hpp"
 #include "core/runtime_state.hpp"
-#include "core/transport/framed_stdio.hpp"
 #include "logging/logger.hpp"
 
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
 #endif
-
-#include "protocol.pb.h"
 
 namespace {
 
@@ -32,11 +29,6 @@ void print_usage(const char *program_name) {
               << "  " << program_name << " --config <path>\n\n"
               << "Implements ADPP v1 provider for EZO devices.\n";
 }
-
-class RuntimeShutdownGuard {
-public:
-    ~RuntimeShutdownGuard() { anolis_provider_ezo::runtime::shutdown(); }
-};
 
 }  // namespace
 
@@ -85,7 +77,6 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    [[maybe_unused]] RuntimeShutdownGuard runtime_shutdown_guard;
     const anolis_provider_ezo::runtime::RuntimeState startup_state = anolis_provider_ezo::runtime::snapshot();
     if (startup_state.ready) {
         anolis_provider_ezo::logging::info(startup_state.startup_message);
@@ -96,71 +87,12 @@ int main(int argc, char **argv) {
     set_binary_mode_stdio();
     anolis_provider_ezo::logging::info("ready (transport=stdio+uint32_le)");
 
-    std::vector<uint8_t> frame;
-    std::string io_error;
-    // ADPP L2 §3.2: a non-Hello request received before a successful Hello is
-    // rejected with CODE_FAILED_PRECONDITION. The session is this process's stdio
-    // stream, so a local flag suffices.
-    bool hello_completed = false;
+    // The SDK run-loop owns the transport, the §3.2 Hello-gate, dispatch, and exit
+    // codes; ezo supplies the device/inventory/readiness seam. on_shutdown stops the
+    // I2C BusExecutor on every loop exit (was RuntimeShutdownGuard).
+    anolis_provider_ezo::EzoProviderRuntime ezo_runtime;
+    anolis::provider_sdk::LifecycleHooks hooks;
+    hooks.on_shutdown = [] { anolis_provider_ezo::runtime::shutdown(); };
 
-    while (true) {
-        frame.clear();
-        const bool read_ok = anolis_provider_ezo::transport::read_frame(std::cin, frame, io_error);
-        if (!read_ok) {
-            if (io_error.empty()) {
-                anolis_provider_ezo::logging::info("EOF on stdin; exiting cleanly");
-                return 0;
-            }
-            anolis_provider_ezo::logging::error("read_frame error: " + io_error);
-            return 2;
-        }
-
-        anolis::deviceprovider::v1::Request request;
-        if (!request.ParseFromArray(frame.data(), static_cast<int>(frame.size()))) {
-            anolis_provider_ezo::logging::error("failed to parse Request protobuf");
-            return 3;
-        }
-
-        anolis::deviceprovider::v1::Response response;
-        response.set_request_id(request.request_id());
-        response.mutable_status()->set_code(anolis::deviceprovider::v1::Status::CODE_INTERNAL);
-        response.mutable_status()->set_message("uninitialized");
-
-        if (request.has_hello()) {
-            anolis_provider_ezo::handlers::handle_hello(request.hello(), response);
-            if (response.status().code() == anolis::deviceprovider::v1::Status::CODE_OK) {
-                hello_completed = true;
-            }
-        } else if (!hello_completed) {
-            // ADPP L2 §3.2: reject (do not process) any non-Hello request before Hello.
-            response.mutable_status()->set_code(anolis::deviceprovider::v1::Status::CODE_FAILED_PRECONDITION);
-            response.mutable_status()->set_message("Hello handshake required before any other request");
-        } else if (request.has_wait_ready()) {
-            anolis_provider_ezo::handlers::handle_wait_ready(request.wait_ready(), response);
-        } else if (request.has_list_devices()) {
-            anolis_provider_ezo::handlers::handle_list_devices(request.list_devices(), response);
-        } else if (request.has_describe_device()) {
-            anolis_provider_ezo::handlers::handle_describe_device(request.describe_device(), response);
-        } else if (request.has_read_signals()) {
-            anolis_provider_ezo::handlers::handle_read_signals(request.read_signals(), response);
-        } else if (request.has_call()) {
-            anolis_provider_ezo::handlers::handle_call(request.call(), response);
-        } else if (request.has_get_health()) {
-            anolis_provider_ezo::handlers::handle_get_health(request.get_health(), response);
-        } else {
-            anolis_provider_ezo::handlers::handle_unimplemented(response);
-        }
-
-        std::string payload;
-        if (!response.SerializeToString(&payload)) {
-            anolis_provider_ezo::logging::error("failed to serialize Response protobuf");
-            return 4;
-        }
-
-        if (!anolis_provider_ezo::transport::write_frame(std::cout, reinterpret_cast<const uint8_t *>(payload.data()),
-                                                         payload.size(), io_error)) {
-            anolis_provider_ezo::logging::error("write_frame error: " + io_error);
-            return 5;
-        }
-    }
+    return anolis::provider_sdk::run_loop(std::cin, std::cout, ezo_runtime, hooks);
 }

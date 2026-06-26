@@ -1,9 +1,8 @@
 add_executable(provider_unit_tests
     bus_executor_test.cpp
     ezo_i2c_bridge_test.cpp
+    ezo_provider_runtime_test.cpp
     main.cpp
-    framed_stdio_test.cpp
-    handlers_test.cpp
     provider_config_test.cpp
 )
 
