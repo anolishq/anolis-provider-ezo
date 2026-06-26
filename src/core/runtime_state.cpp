@@ -418,6 +418,11 @@ void initialize(const ProviderConfig &config) {
 }
 
 RuntimeState snapshot() {
+    // NOTE: this deep-copies the full RuntimeState (active_devices' proto
+    // capabilities + sample vectors) under the global mutex per call. The
+    // targeted shrink is deferred to the Wave-5 ezo->SDK migration, which
+    // reworks this runtime anyway (see anolishq/anolis-protocol#44); the I2C
+    // round-trip dominates the read path, so the copy is not the bottleneck.
     std::lock_guard<std::mutex> lock(g_mutex);
     RuntimeState copy = g_state;
     if (g_executor) {
