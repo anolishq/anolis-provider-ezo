@@ -55,8 +55,33 @@ TEST(EzoProviderRuntimeTest, InventoryAndMetadata) {
     EXPECT_TRUE(rt.has_device("ph0"));
     EXPECT_FALSE(rt.has_device("nope"));
 
-    // readiness must carry the executable-profile-required init_time_ms.
-    EXPECT_EQ(rt.readiness().extra_diagnostics.at("init_time_ms"), "0");
+    // readiness must carry the executable-profile-required init_time_ms (now a
+    // real elapsed value, not a hardcoded "0").
+    const auto diag = rt.readiness().extra_diagnostics;
+    ASSERT_TRUE(diag.contains("init_time_ms"));
+    EXPECT_GE(std::stoll(diag.at("init_time_ms")), 0);
+}
+
+TEST(EzoProviderRuntimeTest, ReadinessRestoresWaitReadyDiagnostics) {
+    const auto rt = make_ready_runtime();
+    const auto diag = rt.readiness().extra_diagnostics;
+
+    // ezo-specific WaitReady diagnostics restored after the SDK migration (#88).
+    // The SDK separately emits device_count/startup_*/provider_* structurally.
+    EXPECT_EQ(diag.at("ready"), "true");
+    EXPECT_EQ(diag.at("configured_device_count"), "2");
+    EXPECT_EQ(diag.at("active_device_count"), "2");
+    EXPECT_EQ(diag.at("excluded_device_count"), "0");
+    EXPECT_EQ(diag.at("bus_path"), "mock://unit-test-i2c");
+    EXPECT_EQ(diag.at("i2c_executor_running"), "true");
+    EXPECT_FALSE(diag.at("i2c_status").empty());
+    EXPECT_TRUE(diag.contains("uptime_ms"));
+    EXPECT_TRUE(diag.contains("call_success_total"));
+    EXPECT_TRUE(diag.contains("call_failure_total"));
+    EXPECT_TRUE(diag.contains("i2c_queue_depth"));
+    EXPECT_TRUE(diag.contains("i2c_jobs_submitted"));
+    EXPECT_TRUE(diag.contains("i2c_jobs_timed_out"));
+    EXPECT_TRUE(diag.contains("startup_message"));
 }
 
 TEST(EzoProviderRuntimeTest, DeviceHealthRestoresPerDeviceMetrics) {

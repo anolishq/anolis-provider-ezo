@@ -84,6 +84,7 @@ struct RuntimeState {
     bool ready = false;
     std::string startup_message;
     std::chrono::system_clock::time_point started_at;
+    std::chrono::system_clock::time_point ready_at;  // set when ready first becomes true
     bool i2c_executor_running = false;
     i2c::BusExecutorMetrics i2c_metrics;
     std::string i2c_status_message = "not initialized";
