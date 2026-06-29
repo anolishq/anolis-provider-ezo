@@ -277,8 +277,41 @@ sdk::ReadinessReport EzoProviderRuntime::readiness() const {
     }
     r.startup_policy = "strict";  // ezo is strict-partial (excludes failed devices, serves the rest)
     r.provider_impl = "ezo";
-    // Required by the executable profile (init_time_ms in WaitReady).
-    r.extra_diagnostics["init_time_ms"] = "0";
+
+    // Restore ezo's pre-migration WaitReady diagnostics surface (thinned by the
+    // SDK migration). The SDK's handle_wait_ready already emits device_count,
+    // startup_*, provider_version and provider_impl from the structured report;
+    // these are the ezo-specific extras it merges verbatim. (anolis-provider-ezo#88)
+    const auto ready_point = state.ready ? state.ready_at : std::chrono::system_clock::now();
+    const auto init_ms = std::chrono::duration_cast<std::chrono::milliseconds>(ready_point - state.started_at).count();
+    int64_t uptime_ms = 0;
+    if (state.started_at.time_since_epoch().count() > 0) {
+        const auto now = std::chrono::system_clock::now();
+        uptime_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - state.started_at).count();
+    }
+    uint64_t call_success_total = 0;
+    uint64_t call_failure_total = 0;
+    for (const auto& device : state.active_devices) {
+        call_success_total += device.call_success_count;
+        call_failure_total += device.call_failure_count;
+    }
+
+    auto& diag = r.extra_diagnostics;
+    diag["init_time_ms"] = std::to_string(init_ms < 0 ? 0 : init_ms);
+    diag["ready"] = state.ready ? "true" : "false";
+    diag["uptime_ms"] = std::to_string(uptime_ms);
+    diag["configured_device_count"] = std::to_string(state.config.devices.size());
+    diag["active_device_count"] = std::to_string(state.active_devices.size());
+    diag["excluded_device_count"] = std::to_string(state.excluded_devices.size());
+    diag["call_success_total"] = std::to_string(call_success_total);
+    diag["call_failure_total"] = std::to_string(call_failure_total);
+    diag["startup_message"] = state.startup_message;
+    diag["bus_path"] = state.config.bus_path;
+    diag["i2c_executor_running"] = state.i2c_executor_running ? "true" : "false";
+    diag["i2c_queue_depth"] = std::to_string(state.i2c_metrics.queue_depth);
+    diag["i2c_jobs_submitted"] = std::to_string(state.i2c_metrics.submitted);
+    diag["i2c_jobs_timed_out"] = std::to_string(state.i2c_metrics.timed_out);
+    diag["i2c_status"] = state.i2c_status_message;
     return r;
 }
 

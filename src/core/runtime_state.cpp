@@ -391,8 +391,11 @@ void initialize(const ProviderConfig &config) {
     }
 
     state.ready = !state.active_devices.empty();
-    if (state.ready && state.i2c_status_message.empty()) {
-        state.i2c_status_message = "ok";
+    if (state.ready) {
+        state.ready_at = std::chrono::system_clock::now();
+        if (state.i2c_status_message.empty()) {
+            state.i2c_status_message = "ok";
+        }
     }
     state.startup_message = build_startup_message(state);
 
