@@ -70,6 +70,15 @@ jobs:
             test_preset: dev-release
             triplet: x64-linux-static
             timeout_minutes: 30
+          # arm64 is the Pi deployment arch — run the unit tests natively so
+          # arch/filesystem quirks surface at PR time. See anolishq/.github#104.
+          - name: Linux ARM64 Build and Test (no hardware)
+            os: ubuntu-24.04-arm
+            configure_preset: ci-linux-arm64-release
+            build_preset: ci-linux-arm64-release
+            test_preset: ci-linux-arm64-release
+            triplet: arm64-linux
+            timeout_minutes: 30
           - name: Windows Build and Test (no hardware)
             os: windows-2025
             configure_preset: dev-windows-release
