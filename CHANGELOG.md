@@ -4,6 +4,38 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-04
+
+### Added
+
+- **Migrated onto `anolis-provider-sdk`.** The provider now builds on the shared
+  SDK's `ProviderRuntime` + run-loop and device-model framework rather than a
+  private copy, pinned to SDK v0.1.2. (#85, #86, #89)
+- **Per-device health metrics + `last_seen`** — health enrichment surfaced per
+  device (SDK#9). (#86)
+- **Restored ezo `WaitReady` diagnostics** (init/readiness reporting; Part 2 of
+  #88). (#91)
+- Curated default signal set. (#56)
+
+### Changed
+
+- Device-model refactors toward the SDK: `EzoDeviceType` moved into the devices
+  layer; read/call delegated to wrapped-result execution functions; single-stage
+  error mapping on the call path; signal-quality rule extracted into
+  `devices::quality_from`; C++20 `std::format` adopted for diagnostics.
+
+### Fixed
+
+- `min_timestamp` is treated as a non-fatal freshness hint rather than a hard
+  error (ezo#70 Stage 4). (#76)
+- Capabilities: `signal_ids` are snake_case and per-type `function_ids` are
+  numbered from 1. (#61)
+
+### CI
+
+- Native arm64 unit-test lane; clang-tidy diff gate promoted to blocking;
+  pinned clang-format / clang-tools; routine dependency maintenance.
+
 ## [0.2.7] - 2026-06-22
 
 ### Added
@@ -162,7 +194,8 @@ only.
 
 - Hardware configs moved to `anolis` main repo; no longer tracked here.
 
-[Unreleased]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.4...v0.2.6
 [0.2.4]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.3...v0.2.4
