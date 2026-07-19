@@ -115,6 +115,14 @@ RuntimeState snapshot();
  */
 i2c::Status submit_i2c_job(const std::string &job_name, std::chrono::milliseconds timeout, i2c::BusExecutor::Job job);
 
+/**
+ * @brief Per-address transport I/O statistics from the live session (ezo#100).
+ *
+ * Zeros when no executor/session is running or the session carries no
+ * traffic (mock builds).
+ */
+i2c::IoStats io_stats_for(uint8_t address);
+
 /** @brief Refresh one device's cached sample immediately. */
 i2c::Status refresh_device_sample(const std::string &device_id);
 

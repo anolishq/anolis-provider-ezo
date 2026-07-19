@@ -332,6 +332,14 @@ sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& devi
         m["sample_failure_count"] = std::to_string(device->sample.failure_count);
         m["call_success_count"] = std::to_string(device->call_success_count);
         m["call_failure_count"] = std::to_string(device->call_failure_count);
+        // Transport-level io counters (ezo#100): bus/electrical health only —
+        // protocol-level failures (garbage payloads, EZO not-ready) surface in
+        // the sample_*/call_* counters above. Shared key vocabulary with other
+        // providers; magnitudes count raw I2C transactions, not logical ops.
+        const i2c::IoStats io = runtime::io_stats_for(static_cast<uint8_t>(device->spec.address));
+        m["io_ok"] = std::to_string(io.ok);
+        m["io_failed"] = std::to_string(io.failed);
+        m["io_retried_attempts"] = std::to_string(io.retried_attempts);
         if (!device->startup_product_code.empty()) {
             m["startup_product_code"] = device->startup_product_code;
         }
@@ -368,6 +376,13 @@ sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& devi
             m["excluded"] = "true";
             m["type"] = to_string(excluded.spec.type);
             m["address"] = format_i2c_address(excluded.spec.address);
+            // Excluded devices are where transport counters are most
+            // diagnostic: the startup probe that caused the exclusion already
+            // accumulated io stats (bus NAKs vs identity mismatch).
+            const i2c::IoStats io = runtime::io_stats_for(static_cast<uint8_t>(excluded.spec.address));
+            m["io_ok"] = std::to_string(io.ok);
+            m["io_failed"] = std::to_string(io.failed);
+            m["io_retried_attempts"] = std::to_string(io.retried_attempts);
             break;
         }
     }
