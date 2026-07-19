@@ -4,6 +4,33 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Per-device transport io counters in `device_health()` (#100): `io_ok`,
+  `io_failed`, `io_retried_attempts`, accumulated per address inside
+  `LinuxSession` where the attempts happen. These measure **bus-level**
+  health only — a transaction that completes electrically but carries a
+  garbage or not-ready EZO payload counts as ok here and fails in the
+  protocol-level `sample_*`/`call_*` counters. `io_retried_attempts` counts
+  every attempt beyond an operation's first, so retry-masked bus trouble
+  stays visible. Counters tally raw I2C transactions (one sample is several);
+  the shared contract with other providers is the key vocabulary and the
+  masked-retry property, not magnitudes. Mock builds report the keys at zero.
+
+### Changed
+
+- Kernel `I2C_RETRIES` is now set to 0 at session open: every attempt is
+  performed and counted by the session's own retry loop, with
+  `hardware.retry_count` as the single retry budget. The setting is
+  adapter-global and persistent (i2c-dev writes `adapter->retries`), so
+  writing 0 also clears any stale value a previous run left behind. On the
+  Raspberry Pi target this is a structural no-op (i2c-core retries only on
+  `-EAGAIN` arbitration loss, which the bcm2835 adapter never returns; its
+  default is already 0). On adapters that do return `-EAGAIN`, total
+  resilience is deliberately lower than the previous multiplicative
+  kernel-times-userspace double retry — up to `(retry_count+1)^2` attempts
+  before, exactly `retry_count+1` counted attempts now.
+
 ## [0.3.0] - 2026-07-04
 
 ### Added

@@ -442,6 +442,22 @@ RuntimeState snapshot() {
     return copy;
 }
 
+i2c::IoStats io_stats_for(uint8_t address) {
+    std::shared_ptr<i2c::BusExecutor> executor;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        executor = g_executor;
+    }
+    if (!executor) {
+        return i2c::IoStats{};
+    }
+    // Fetch the session once (each session() call takes the executor mutex).
+    // The shared_ptr keeps the executor and its owned session alive for the
+    // read; the stats accessor is internally synchronized.
+    i2c::ISession *session = executor->session();
+    return session->io_stats_for(address);
+}
+
 i2c::Status submit_i2c_job(const std::string &job_name, std::chrono::milliseconds timeout, i2c::BusExecutor::Job job) {
     std::shared_ptr<i2c::BusExecutor> executor;
     {

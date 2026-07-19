@@ -30,6 +30,25 @@ Status Status::ok() { return Status{}; }
 
 bool Status::is_ok() const { return code == StatusCode::Ok; }
 
+void IoStatsMap::record(uint8_t address, bool ok, int attempts) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    IoStats &stats = stats_[address];
+    if (ok) {
+        ++stats.ok;
+    } else {
+        ++stats.failed;
+    }
+    if (attempts > 1) {
+        stats.retried_attempts += static_cast<uint64_t>(attempts - 1);
+    }
+}
+
+IoStats IoStatsMap::stats_for(uint8_t address) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = stats_.find(address);
+    return it == stats_.end() ? IoStats{} : it->second;
+}
+
 NoopSession::NoopSession(std::string bus_path) : bus_path_(std::move(bus_path)) {}
 
 Status NoopSession::open() {
@@ -75,7 +94,17 @@ Status LinuxSession::open() {
     // I2C_TIMEOUT unit is 10ms.
     const int timeout_10ms = std::max(1, timeout_ms_ / 10);
     (void)::ioctl(fd_, I2C_TIMEOUT, timeout_10ms);
-    (void)::ioctl(fd_, I2C_RETRIES, retry_count_);
+    // Kernel retries are disabled so every attempt is performed (and counted)
+    // by this session (ezo#100): i2c-core's I2C_RETRIES loop re-issues a
+    // transfer only when the adapter returns -EAGAIN (arbitration lost), which
+    // would be invisible to the io counters — and would multiply with the
+    // userspace attempt loop below. hardware.retry_count remains the single
+    // retry budget, applied in write_then_read(). NOTE: this setting is
+    // ADAPTER-GLOBAL (i2c-dev writes adapter->retries, shared by every user of
+    // the bus and persistent across process exits) — writing 0 also clears any
+    // stale nonzero value a previous run left behind; 0 matches the
+    // zero-initialized default of adapters that don't set their own.
+    (void)::ioctl(fd_, I2C_RETRIES, 0);
 
     opened_ = true;
     return Status::ok();
@@ -97,6 +126,8 @@ void LinuxSession::close() {
 bool LinuxSession::is_open() const { return opened_; }
 
 const std::string &LinuxSession::bus_path() const { return bus_path_; }
+
+IoStats LinuxSession::io_stats_for(uint8_t address) const { return io_stats_.stats_for(address); }
 
 Status LinuxSession::write_then_read(uint8_t address, const uint8_t *tx_data, size_t tx_len, uint8_t *rx_data,
                                      size_t rx_len, size_t *rx_received) {
@@ -133,21 +164,28 @@ Status LinuxSession::write_then_read(uint8_t address, const uint8_t *tx_data, si
     ioctl_data.msgs = msgs;
     ioctl_data.nmsgs = static_cast<__u32>(msg_count);
 
-    const int attempts = std::max(retry_count_ + 1, 1);
-    for (int attempt = 0; attempt < attempts; ++attempt) {
+    const int max_attempts = std::max(retry_count_ + 1, 1);
+    int attempts_made = 0;
+    int last_errno = 0;
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        ++attempts_made;
         if (::ioctl(fd_, I2C_RDWR, &ioctl_data) >= 0) {
             if (rx_received != nullptr) {
                 *rx_received = rx_len;
             }
+            io_stats_.record(address, true, attempts_made);
             return Status::ok();
         }
 
-        if (errno != EINTR && errno != EAGAIN) {
+        // Capture before record(): the stats mutex/map-insert may clobber errno.
+        last_errno = errno;
+        if (last_errno != EINTR && last_errno != EAGAIN) {
             break;
         }
     }
 
-    return make_status(StatusCode::Unavailable, "I2C_RDWR failed on " + bus_path_ + ": " + std::strerror(errno));
+    io_stats_.record(address, false, attempts_made);
+    return make_status(StatusCode::Unavailable, "I2C_RDWR failed on " + bus_path_ + ": " + std::strerror(last_errno));
 #else
     (void)address;
     (void)tx_data;
