@@ -4,6 +4,8 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-19
+
 ### Added
 
 - Per-device transport io counters in `device_health()` (#100): `io_ok`,
