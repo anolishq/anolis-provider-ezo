@@ -12,18 +12,17 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdio>
-#include <cstring>
 #include <format>
 #include <memory>
 #include <mutex>
 #include <sstream>
-#include <thread>
 #include <utility>
 
+#include "anolis/provider_sdk/i2c/fault_injecting_i2c_bus.hpp"
 #include "anolis/provider_sdk/i2c/linux_i2c_bus.hpp"
 #include "devices/common/device_adapter.hpp"
 #include "devices/common/sample_helpers.hpp"
+#include "i2c/ezo_canned_bus.hpp"
 #include "i2c/ezo_i2c_bridge.hpp"
 #include "i2c/noop_i2c_bus.hpp"
 #include "logging/logger.hpp"
@@ -139,13 +138,25 @@ void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
 
 std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
     if (is_mock_mode(config)) {
-        return std::make_unique<i2c::NoopI2cBus>(config.bus_path);
+        // Mock runs the real driver command/parse path against a canned EZO
+        // device on the bus. A fault spec on the mock:// query wraps it in the
+        // fault-injecting decorator (anolishq/anolis#99); with no spec it is a
+        // pass-through so plain mock:// stays a clean, fault-free device.
+        auto [path, query] = anolis::provider_sdk::i2c::split_bus_query(config.bus_path);
+        auto canned = std::make_unique<i2c::EzoCannedBus>(path);
+        const auto spec = anolis::provider_sdk::i2c::FaultSpec::parse(query);
+        if (spec.any()) {
+            return std::make_unique<anolis::provider_sdk::i2c::FaultInjectingI2cBus>(std::move(canned), spec);
+        }
+        return canned;
     }
 
 #if defined(__linux__)
     return std::make_unique<anolis::provider_sdk::i2c::LinuxI2cBus>(config.bus_path, config.timeout_ms,
                                                                     config.retry_count);
 #else
+    // Non-Linux hardware mode has no i2c-dev: a no-op bus that fails reads (no
+    // faked data), matching the former NoopSession fallback.
     return std::make_unique<i2c::NoopI2cBus>(config.bus_path);
 #endif
 }
@@ -205,42 +216,6 @@ anolis::deviceprovider::v1::Device build_descriptor(const ProviderConfig &config
     return descriptor;
 }
 
-ezo_product_id_t mock_product_for_address(int address) {
-    switch (address) {
-        case 0x61:
-            return EZO_PRODUCT_DO;
-        case 0x62:
-            return EZO_PRODUCT_ORP;
-        case 0x63:
-            return EZO_PRODUCT_PH;
-        case 0x64:
-            return EZO_PRODUCT_EC;
-        case 0x66:
-            return EZO_PRODUCT_RTD;
-        case 0x6F:
-            return EZO_PRODUCT_HUM;
-        default:
-            return EZO_PRODUCT_UNKNOWN;
-    }
-}
-
-void fill_mock_identity(int address, ezo_device_info_t *info) {
-    if (info == nullptr) {
-        return;
-    }
-
-    std::memset(info, 0, sizeof(*info));
-    info->product_id = mock_product_for_address(address);
-
-    const ezo_product_metadata_t *metadata = ezo_product_get_metadata(info->product_id);
-    if (metadata != nullptr && metadata->vendor_short_code != nullptr) {
-        std::snprintf(info->product_code, sizeof(info->product_code), "%s", metadata->vendor_short_code);
-    } else {
-        std::snprintf(info->product_code, sizeof(info->product_code), "UNK");
-    }
-    std::snprintf(info->firmware_version, sizeof(info->firmware_version), "mock-1.0");
-}
-
 i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig &config, const DeviceSpec &spec,
                                 ezo_device_info_t *info_out) {
     if (info_out == nullptr) {
@@ -265,9 +240,8 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig
                 return status_from_ezo_result(send_result, "send info query");
             }
 
-            if (hint.wait_ms > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(hint.wait_ms));
-            }
+            // Settle via the bus so mock (canned) is instant and real hardware sleeps.
+            bus.delay_us(hint.wait_ms * 1000U);
 
             const ezo_result_t read_result = ezo_control_read_info_i2c(&binding.device, &info);
             if (read_result != EZO_OK) {
@@ -289,13 +263,6 @@ i2c::Status read_sample_from_bound_device(ezo_i2c_device_t *device, const Device
         return make_status(i2c::StatusCode::InvalidArgument, "device sample read requires valid pointers");
     }
     return devices::adapter_for(spec.type).read_sample(device, *signals_out);
-}
-
-void build_mock_sample(const DeviceSpec &spec, uint64_t sequence, std::vector<SignalSample> *signals_out) {
-    if (signals_out == nullptr) {
-        return;
-    }
-    devices::adapter_for(spec.type).build_mock_sample(spec.address, sequence, *signals_out);
 }
 
 std::string build_startup_message(const RuntimeState &state) {
@@ -352,15 +319,12 @@ void initialize(const ProviderConfig &config) {
     // Device activation is all-or-some, not all-or-nothing. Each configured
     // device is probed independently so one bad address or family mismatch does
     // not hide the healthy devices on the same bus.
-    const bool mock_mode = is_mock_mode(config);
+    // Identity is probed through the bus for both real and mock modes — in mock
+    // the canned bus answers the driver's "i" query, so there is no separate
+    // above-the-bus synthesis path.
     for (const DeviceSpec &spec : config.devices) {
         ezo_device_info_t info{};
-        i2c::Status probe_status = i2c::Status::ok();
-        if (mock_mode) {
-            fill_mock_identity(spec.address, &info);
-        } else {
-            probe_status = probe_identity_real(*executor, config, spec, &info);
-        }
+        const i2c::Status probe_status = probe_identity_real(*executor, config, spec, &info);
 
         if (!probe_status.is_ok()) {
             state.excluded_devices.push_back(ExcludedDevice{spec, probe_status.message});
@@ -485,7 +449,6 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
 
     ProviderConfig config;
     DeviceSpec spec;
-    bool mock_mode = false;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         auto it = find_active_device_unlocked(g_state.active_devices, device_id);
@@ -494,26 +457,6 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         }
         config = g_state.config;
         spec = it->spec;
-        mock_mode = is_mock_mode(config);
-    }
-
-    if (mock_mode) {
-        const auto now = std::chrono::system_clock::now();
-        std::lock_guard<std::mutex> lock(g_mutex);
-        auto it = find_active_device_unlocked(g_state.active_devices, device_id);
-        if (it == g_state.active_devices.end()) {
-            return make_status(i2c::StatusCode::NotFound, "unknown device_id");
-        }
-
-        const uint64_t sequence = it->sample.sequence + 1;
-        build_mock_sample(spec, sequence, &it->sample.signals);
-        it->sample.sampled_at = now;
-        it->sample.has_sample = true;
-        it->sample.last_read_ok = true;
-        it->sample.last_error.clear();
-        ++it->sample.success_count;
-        it->sample.sequence = sequence;
-        return i2c::Status::ok();
     }
 
     std::vector<SignalSample> new_signals;

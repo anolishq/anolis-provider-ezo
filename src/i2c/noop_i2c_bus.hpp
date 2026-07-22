@@ -2,15 +2,13 @@
 
 /**
  * @file noop_i2c_bus.hpp
- * @brief No-hardware I2cBus used for mock (`mock://`) and non-Linux builds.
+ * @brief No-hardware I2cBus for non-Linux (no i2c-dev) hardware builds.
  *
- * Mock mode synthesizes device identity and samples *above* the bus (see
- * runtime_state's fill_mock_identity/build_mock_sample), so this bus carries no
- * real traffic: open() succeeds (so the serialized executor starts and the
- * io_* keys surface honestly at zero), and any actual transaction reports the
- * transport as unavailable. Replaced by a canned, fault-injectable bus when the
- * mock path is driven through the real EZO decode surface
- * (anolishq/anolis-provider-sdk#19, migration PR B).
+ * open() succeeds so the serialized executor still starts and the io_* keys
+ * surface honestly at zero, but any actual transaction reports the transport as
+ * unavailable — there is no faked data. Mock mode does NOT use this bus: it runs
+ * the real EZO command/parse path against the fault-injectable EzoCannedBus
+ * (anolishq/anolis-provider-sdk#19).
  */
 
 #include <cstddef>

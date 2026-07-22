@@ -1,15 +1,19 @@
 #include "devices/common/sample_helpers.hpp"
 
-#include <chrono>
-#include <thread>
+#include "i2c/bus.hpp"
 
 namespace anolis_provider_ezo::devices {
 
 i2c::Status make_status(i2c::StatusCode code, const std::string &message) { return i2c::Status{code, message}; }
 
-void wait_for_timing_hint(const ezo_timing_hint_t &hint) {
-    if (hint.wait_ms > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(hint.wait_ms));
+void wait_for_timing_hint(ezo_i2c_device_t *device, const ezo_timing_hint_t &hint) {
+    if (hint.wait_ms == 0 || device == nullptr) {
+        return;
+    }
+    // transport_context is the bound I2cBus (see bind_ezo_i2c_device).
+    auto *bus = static_cast<i2c::I2cBus *>(device->transport_context);
+    if (bus != nullptr) {
+        bus->delay_us(hint.wait_ms * 1000U);
     }
 }
 
@@ -59,9 +63,5 @@ void initialize_signal_samples(const SignalDefinition *defs, std::size_t count,
     (void)defs;
     signals_out.assign(count, SignalSample{});
 }
-
-double mock_base(int address) { return static_cast<double>((address % 17) + 1) * 0.1; }
-
-double mock_delta(uint64_t sequence) { return static_cast<double>(sequence % 25) * 0.01; }
 
 }  // namespace anolis_provider_ezo::devices

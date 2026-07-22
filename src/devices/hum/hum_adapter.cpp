@@ -25,7 +25,7 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out
     if (result != EZO_OK) {
         return status_from_ezo_result(result, "send HUM output query");
     }
-    wait_for_timing_hint(hint);
+    wait_for_timing_hint(device, hint);
     ezo_hum_output_config_t output_config{};
     result = ezo_hum_read_output_config_i2c(device, &output_config);
     if (result != EZO_OK) {
@@ -37,7 +37,7 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out
     if (result != EZO_OK) {
         return status_from_ezo_result(result, "send HUM read");
     }
-    wait_for_timing_hint(hint);
+    wait_for_timing_hint(device, hint);
 
     ezo_hum_reading_t reading{};
     result = ezo_hum_read_response_i2c(device, output_config.enabled_mask, &reading);
@@ -63,18 +63,8 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out
     return i2c::Status::ok();
 }
 
-void build_mock_sample(int address, uint64_t sequence, std::vector<SignalSample> &out) {
-    initialize_signal_samples(kSignals, std::size(kSignals), out);
-    const double base = mock_base(address);
-    const double delta = mock_delta(sequence);
-    set_signal_value(out, 0, 45.0 + (base * 5.0) + (delta * 10.0));
-    set_signal_value(out, 1, 22.0 + base + delta);
-    set_signal_unavailable(out, 2, "dew point output disabled on device");
-}
-
 }  // namespace
 
-const DeviceAdapter kAdapter{EZO_PRODUCT_HUM,     "sensor.ezo.hum", kSignals,
-                             std::size(kSignals), &read_sample,     &build_mock_sample};
+const DeviceAdapter kAdapter{EZO_PRODUCT_HUM, "sensor.ezo.hum", kSignals, std::size(kSignals), &read_sample};
 
 }  // namespace anolis_provider_ezo::devices::hum

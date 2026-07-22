@@ -47,8 +47,6 @@ int stale_after_ms(const runtime::RuntimeState& state) {
     return std::max(sample_period_ms(state) * 3, kMinStaleAfterMs);
 }
 
-bool is_mock_mode(const runtime::RuntimeState& state) { return state.config.bus_path.rfind("mock://", 0) == 0; }
-
 Status::Code map_i2c_status_code(i2c::StatusCode code) {
     switch (code) {
         case i2c::StatusCode::Ok:
@@ -199,15 +197,11 @@ bool validate_call_args(uint32_t function_id, const sdk::ValueMap& args, bool* s
     return false;
 }
 
-// Execute one control call through the serialized I2C executor (the hardware seam
-// stays here). Mock mode short-circuits. Returns a neutral AdapterCallResult.
-sdk::AdapterCallResult execute_safe_call(const runtime::RuntimeState& state, const runtime::ActiveDevice& device,
-                                         uint32_t function_id, bool set_led_enabled,
-                                         std::chrono::milliseconds timeout) {
-    if (is_mock_mode(state)) {
-        return {true, Status::CODE_OK, ""};
-    }
-
+// Execute one control call through the serialized I2C executor. In mock mode the
+// canned bus answers the send, so the same path runs for real and mock. Returns
+// a neutral AdapterCallResult.
+sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, uint32_t function_id,
+                                         bool set_led_enabled, std::chrono::milliseconds timeout) {
     const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
         return {false, Status::CODE_INTERNAL, "unsupported configured device type for control call"};
@@ -241,7 +235,7 @@ sdk::AdapterCallResult execute_safe_call(const runtime::RuntimeState& state, con
             if (result != EZO_OK) {
                 return devices::status_from_ezo_result(result, "send control command");
             }
-            devices::wait_for_timing_hint(hint);
+            devices::wait_for_timing_hint(&binding.device, hint);
             return i2c::Status::ok();
         });
     return {status.is_ok(), map_i2c_status_code(status.code), status.message};
@@ -506,7 +500,7 @@ sdk::AdapterCallResult EzoProviderRuntime::call(const std::string& device_id, ui
     // timeout budget only (the pre-migration CallRequest.deadline clamp is dropped).
     const std::chrono::milliseconds timeout(std::max(state.config.timeout_ms, 1));
 
-    const sdk::AdapterCallResult result = execute_safe_call(state, *device, function_id, set_led_enabled, timeout);
+    const sdk::AdapterCallResult result = execute_safe_call(*device, function_id, set_led_enabled, timeout);
     if (!result.ok) {
         runtime::record_call_result(device_id, function_spec->name(), false, result.error_message);
         logging::warning("call failed for device '" + device_id + "' function '" + function_spec->name() +

@@ -34,7 +34,6 @@ struct DeviceAdapter {
     const SignalDefinition *signals;
     std::size_t signal_count;
     i2c::Status (*read_sample)(ezo_i2c_device_t *device, std::vector<SignalSample> &out);
-    void (*build_mock_sample)(int address, uint64_t sequence, std::vector<SignalSample> &out);
 };
 
 /** @brief The adapter for a device family. Exhaustive over EzoDeviceType. */
