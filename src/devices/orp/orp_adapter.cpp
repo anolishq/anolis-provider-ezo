@@ -23,7 +23,7 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out
     if (result != EZO_OK) {
         return status_from_ezo_result(result, "send ORP read");
     }
-    wait_for_timing_hint(hint);
+    wait_for_timing_hint(device, hint);
     ezo_orp_reading_t reading{};
     result = ezo_orp_read_response_i2c(device, &reading);
     if (result != EZO_OK) {
@@ -33,14 +33,8 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out
     return i2c::Status::ok();
 }
 
-void build_mock_sample(int address, uint64_t sequence, std::vector<SignalSample> &out) {
-    initialize_signal_samples(kSignals, std::size(kSignals), out);
-    set_signal_value(out, 0, 250.0 + (mock_base(address) * 10.0) + (mock_delta(sequence) * 100.0));
-}
-
 }  // namespace
 
-const DeviceAdapter kAdapter{EZO_PRODUCT_ORP,     "sensor.ezo.orp", kSignals,
-                             std::size(kSignals), &read_sample,     &build_mock_sample};
+const DeviceAdapter kAdapter{EZO_PRODUCT_ORP, "sensor.ezo.orp", kSignals, std::size(kSignals), &read_sample};
 
 }  // namespace anolis_provider_ezo::devices::orp

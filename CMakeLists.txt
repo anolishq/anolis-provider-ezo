@@ -109,6 +109,7 @@ add_library(anolis_provider_ezo_core STATIC
     src/devices/rtd/rtd_adapter.cpp
     src/devices/hum/hum_adapter.cpp
     src/i2c/bus_executor.cpp
+    src/i2c/ezo_canned_bus.cpp
     src/i2c/ezo_i2c_bridge.cpp
     src/i2c/noop_i2c_bus.cpp)
 target_include_directories(anolis_provider_ezo_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
