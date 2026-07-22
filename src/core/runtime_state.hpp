@@ -116,9 +116,9 @@ RuntimeState snapshot();
 i2c::Status submit_i2c_job(const std::string &job_name, std::chrono::milliseconds timeout, i2c::BusExecutor::Job job);
 
 /**
- * @brief Per-address transport I/O statistics from the live session (ezo#100).
+ * @brief Per-address transport I/O statistics from the live bus (ezo#100).
  *
- * Zeros when no executor/session is running or the session carries no
+ * Zeros when no executor/bus is running or the bus carries no
  * traffic (mock builds).
  */
 i2c::IoStats io_stats_for(uint8_t address);

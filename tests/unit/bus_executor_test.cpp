@@ -10,17 +10,17 @@
 #include <thread>
 #include <vector>
 
-#include "i2c/session.hpp"
+#include "i2c/noop_i2c_bus.hpp"
 
 namespace {
 
 using anolis_provider_ezo::i2c::BusExecutor;
-using anolis_provider_ezo::i2c::NoopSession;
+using anolis_provider_ezo::i2c::NoopI2cBus;
 using anolis_provider_ezo::i2c::Status;
 using anolis_provider_ezo::i2c::StatusCode;
 
 TEST(BusExecutorTest, ProcessesJobsInSubmissionOrder) {
-    BusExecutor executor(std::make_unique<NoopSession>("mock://executor-order"));
+    BusExecutor executor(std::make_unique<NoopI2cBus>("mock://executor-order"));
     ASSERT_TRUE(executor.start().is_ok());
 
     std::vector<int> order;
@@ -28,7 +28,7 @@ TEST(BusExecutorTest, ProcessesJobsInSubmissionOrder) {
 
     for (int i = 0; i < 5; ++i) {
         const Status status = executor.submit("job-" + std::to_string(i), std::chrono::milliseconds(250),
-                                              [&order, &order_mutex, i](anolis_provider_ezo::i2c::ISession &) {
+                                              [&order, &order_mutex, i](anolis_provider_ezo::i2c::I2cBus &) {
                                                   std::lock_guard<std::mutex> lock(order_mutex);
                                                   order.push_back(i);
                                                   return Status::ok();
@@ -51,11 +51,11 @@ TEST(BusExecutorTest, ProcessesJobsInSubmissionOrder) {
 }
 
 TEST(BusExecutorTest, ReturnsDeadlineExceededWhenJobTimesOut) {
-    BusExecutor executor(std::make_unique<NoopSession>("mock://executor-timeout"));
+    BusExecutor executor(std::make_unique<NoopI2cBus>("mock://executor-timeout"));
     ASSERT_TRUE(executor.start().is_ok());
 
     const Status status =
-        executor.submit("slow-job", std::chrono::milliseconds(30), [](anolis_provider_ezo::i2c::ISession &) {
+        executor.submit("slow-job", std::chrono::milliseconds(30), [](anolis_provider_ezo::i2c::I2cBus &) {
             std::this_thread::sleep_for(std::chrono::milliseconds(90));
             return Status::ok();
         });
@@ -72,7 +72,7 @@ TEST(BusExecutorTest, ReturnsDeadlineExceededWhenJobTimesOut) {
 }
 
 TEST(BusExecutorTest, StopCancelsQueuedJobs) {
-    BusExecutor executor(std::make_unique<NoopSession>("mock://executor-stop"));
+    BusExecutor executor(std::make_unique<NoopI2cBus>("mock://executor-stop"));
     ASSERT_TRUE(executor.start().is_ok());
 
     std::promise<void> slow_started;
@@ -84,7 +84,7 @@ TEST(BusExecutorTest, StopCancelsQueuedJobs) {
 
     std::thread slow_submitter([&]() {
         slow_status = executor.submit("slow-job", std::chrono::milliseconds(1000),
-                                      [&slow_started](anolis_provider_ezo::i2c::ISession &) {
+                                      [&slow_started](anolis_provider_ezo::i2c::I2cBus &) {
                                           slow_started.set_value();
                                           std::this_thread::sleep_for(std::chrono::milliseconds(180));
                                           return Status::ok();
@@ -96,7 +96,7 @@ TEST(BusExecutorTest, StopCancelsQueuedJobs) {
     std::thread queued_submitter([&]() {
         queue_submit_called.store(true);
         queued_status = executor.submit("queued-job", std::chrono::milliseconds(800),
-                                        [](anolis_provider_ezo::i2c::ISession &) { return Status::ok(); });
+                                        [](anolis_provider_ezo::i2c::I2cBus &) { return Status::ok(); });
     });
 
     for (int i = 0; i < 50; ++i) {

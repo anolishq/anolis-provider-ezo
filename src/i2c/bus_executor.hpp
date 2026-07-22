@@ -18,7 +18,7 @@
 #include <string>
 #include <thread>
 
-#include "i2c/session.hpp"
+#include "i2c/bus.hpp"
 
 namespace anolis_provider_ezo::i2c {
 
@@ -53,9 +53,9 @@ struct BusExecutorMetrics {
  */
 class BusExecutor {
 public:
-    using Job = std::function<Status(ISession &session)>;
+    using Job = std::function<Status(I2cBus &bus)>;
 
-    explicit BusExecutor(std::unique_ptr<ISession> session);
+    explicit BusExecutor(std::unique_ptr<I2cBus> bus);
     ~BusExecutor();
 
     /** @brief Open the session and start the worker thread. */
@@ -81,8 +81,8 @@ public:
     /** @brief Return a point-in-time copy of executor metrics. */
     BusExecutorMetrics snapshot_metrics() const;
 
-    /** @brief Access the owned session pointer for diagnostics. */
-    ISession *session();
+    /** @brief Access the owned bus pointer for diagnostics. */
+    I2cBus *bus();
 
 private:
     struct Task {
@@ -95,7 +95,7 @@ private:
     void worker_loop();
     static void safe_set_promise(std::promise<Status> &promise, const Status &status);
 
-    std::unique_ptr<ISession> session_;
+    std::unique_ptr<I2cBus> bus_;
 
     mutable std::mutex mutex_;
     std::condition_variable cv_;

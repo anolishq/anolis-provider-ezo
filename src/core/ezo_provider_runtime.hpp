@@ -8,7 +8,7 @@
  * delegates to `runtime::snapshot()` + the device/executor substrate. The SDK's
  * generic run-loop + handlers own all ADPP envelope/policy. `read()` performs the
  * D1 conversion (the cached per-family `SignalSample` -> proto `SignalValue` with
- * `quality_from`); the hardware-session seam (`ISession`/`BusExecutor`/
+ * `quality_from`); the shared I2C bus seam (`I2cBus`/`BusExecutor`/
  * `bind_ezo_i2c_device`) stays entirely inside `runtime_state.cpp` — the SDK never
  * sees it. ezo keeps its own `DeviceAdapter` descriptor (over `ezo_i2c_device_t*`)
  * and `adapter_for` taxonomy; it does not instantiate the SDK's `DeviceAdapter<HandleT>`.

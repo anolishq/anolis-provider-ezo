@@ -32,7 +32,7 @@ struct DeviceSpec {
  * The provider is intentionally manual-config only in v1, so `devices`
  * represents the full expected topology on one bus path. `query_delay_us`
  * controls nominal per-device sample cadence, while `timeout_ms` and
- * `retry_count` configure the Linux transport defaults used by the session and
+ * `retry_count` configure the Linux transport defaults used by the bus and
  * bus executor.
  */
 struct ProviderConfig {
