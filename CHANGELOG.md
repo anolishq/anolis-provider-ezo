@@ -4,6 +4,24 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-22
+
+### Changed
+
+- Migrated the real I2C transport onto the shared bus seam in
+  `anolis-provider-sdk` 0.1.4 (`anolis::provider_sdk_i2c`), replacing the
+  provider-local `ISession`/`LinuxSession` with the SDK's `I2cBus`/
+  `LinuxI2cBus`. The duplicated `I2C_RDWR`/timeout/retry/errno mechanics and
+  the per-address `IoStats` now live once in the SDK. This is a behaviour-
+  preserving swap of the hardware read path — the `I2C_RDWR` construction,
+  retry budget (`hardware.retry_count`), `EINTR`/`EAGAIN` handling,
+  `I2C_TIMEOUT`/`I2C_RETRIES=0` open sequence, and io-counter accounting are
+  unchanged — so the `io_ok`/`io_failed`/`io_retried_attempts` health keys
+  behave exactly as in 0.3.1. Mock mode is unchanged: identity and samples are
+  still synthesized above the bus (a `NoopI2cBus` stands in for the removed
+  `NoopSession`). The through-bus, fault-injectable mock is a follow-up.
+  (anolishq/anolis-provider-sdk#19)
+
 ## [0.3.1] - 2026-07-19
 
 ### Added
@@ -223,7 +241,9 @@ only.
 
 - Hardware configs moved to `anolis` main repo; no longer tracked here.
 
-[Unreleased]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.4...v0.2.6
