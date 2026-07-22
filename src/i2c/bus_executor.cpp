@@ -18,7 +18,7 @@ Status make_status(StatusCode code, const std::string &message) { return Status{
 
 }  // namespace
 
-BusExecutor::BusExecutor(std::unique_ptr<ISession> session) : session_(std::move(session)) {}
+BusExecutor::BusExecutor(std::unique_ptr<I2cBus> bus) : bus_(std::move(bus)) {}
 
 BusExecutor::~BusExecutor() { stop(); }
 
@@ -27,11 +27,11 @@ Status BusExecutor::start() {
     if (running_) {
         return Status::ok();
     }
-    if (!session_) {
-        return make_status(StatusCode::Internal, "missing session");
+    if (!bus_) {
+        return make_status(StatusCode::Internal, "missing bus");
     }
 
-    Status open_status = session_->open();
+    Status open_status = status_from_i2c(bus_->open());
     if (!open_status.is_ok()) {
         metrics_.last_error = open_status.message;
         return open_status;
@@ -49,8 +49,8 @@ void BusExecutor::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!running_) {
-            if (session_) {
-                session_->close();
+            if (bus_) {
+                bus_->close();
             }
             return;
         }
@@ -74,8 +74,8 @@ void BusExecutor::stop() {
         worker_.join();
     }
 
-    if (session_) {
-        session_->close();
+    if (bus_) {
+        bus_->close();
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -128,9 +128,9 @@ BusExecutorMetrics BusExecutor::snapshot_metrics() const {
     return metrics_;
 }
 
-ISession *BusExecutor::session() {
+I2cBus *BusExecutor::bus() {
     std::lock_guard<std::mutex> lock(mutex_);
-    return session_.get();
+    return bus_.get();
 }
 
 void BusExecutor::worker_loop() {
@@ -161,7 +161,7 @@ void BusExecutor::worker_loop() {
             continue;
         }
 
-        Status status = task->job(*session_);
+        Status status = task->job(*bus_);
 
         if (!task->timed_out.load()) {
             std::lock_guard<std::mutex> lock(mutex_);

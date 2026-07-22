@@ -2,20 +2,18 @@
 
 /**
  * @file ezo_i2c_bridge.hpp
- * @brief Bridge from the provider's `ISession` abstraction into the EZO C
- * transport API.
+ * @brief Bridge from the shared `I2cBus` transport into the EZO C transport API.
  */
 
 #include <cstdint>
 
 #include "ezo_i2c.h"
-#include "i2c/session.hpp"
+#include "i2c/bus.hpp"
 
 namespace anolis_provider_ezo::i2c {
 
 /**
- * @brief Bound EZO device handle backed by a provider-managed session
- * transport.
+ * @brief Bound EZO device handle backed by a provider-managed bus transport.
  */
 struct EzoDeviceBinding {
     ezo_i2c_device_t device{};
@@ -24,11 +22,11 @@ struct EzoDeviceBinding {
 
 /**
  * @brief Initialize an EZO C device handle that forwards transport calls
- * through `ISession`.
+ * through `I2cBus`.
  *
- * The resulting binding borrows `session`; callers must ensure the session
- * outlives any use of `binding.device`.
+ * The resulting binding borrows `bus`; callers must ensure the bus outlives any
+ * use of `binding.device`.
  */
-Status bind_ezo_i2c_device(ISession &session, uint8_t address, EzoDeviceBinding &binding);
+Status bind_ezo_i2c_device(I2cBus &bus, uint8_t address, EzoDeviceBinding &binding);
 
 }  // namespace anolis_provider_ezo::i2c

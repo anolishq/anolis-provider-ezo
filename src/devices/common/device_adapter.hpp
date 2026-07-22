@@ -19,7 +19,7 @@
 #include "devices/common/device_type.hpp"
 #include "devices/common/signal_definition.hpp"
 #include "devices/common/signal_sample.hpp"
-#include "i2c/session.hpp"
+#include "i2c/status.hpp"
 
 extern "C" {
 #include "ezo_i2c.h"

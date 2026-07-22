@@ -21,9 +21,11 @@
 #include <thread>
 #include <utility>
 
+#include "anolis/provider_sdk/i2c/linux_i2c_bus.hpp"
 #include "devices/common/device_adapter.hpp"
 #include "devices/common/sample_helpers.hpp"
 #include "i2c/ezo_i2c_bridge.hpp"
+#include "i2c/noop_i2c_bus.hpp"
 #include "logging/logger.hpp"
 
 extern "C" {
@@ -135,15 +137,16 @@ void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
     add_result_spec(sleep_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
 }
 
-std::unique_ptr<i2c::ISession> make_session(const ProviderConfig &config) {
+std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
     if (is_mock_mode(config)) {
-        return std::make_unique<i2c::NoopSession>(config.bus_path);
+        return std::make_unique<i2c::NoopI2cBus>(config.bus_path);
     }
 
 #if defined(__linux__)
-    return std::make_unique<i2c::LinuxSession>(config.bus_path, config.timeout_ms, config.retry_count);
+    return std::make_unique<anolis::provider_sdk::i2c::LinuxI2cBus>(config.bus_path, config.timeout_ms,
+                                                                    config.retry_count);
 #else
-    return std::make_unique<i2c::NoopSession>(config.bus_path);
+    return std::make_unique<i2c::NoopI2cBus>(config.bus_path);
 #endif
 }
 
@@ -249,9 +252,9 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig
     const int timeout_ms = std::max(config.timeout_ms, 2000);
 
     const i2c::Status status =
-        executor.submit("startup_probe:" + spec.id, std::chrono::milliseconds(timeout_ms), [&](i2c::ISession &session) {
+        executor.submit("startup_probe:" + spec.id, std::chrono::milliseconds(timeout_ms), [&](i2c::I2cBus &bus) {
             i2c::EzoDeviceBinding binding;
-            i2c::Status bind_status = i2c::bind_ezo_i2c_device(session, static_cast<uint8_t>(spec.address), binding);
+            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(spec.address), binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
             }
@@ -333,7 +336,7 @@ void initialize(const ProviderConfig &config) {
     state.started_at = std::chrono::system_clock::now();
     state.ready = false;
 
-    auto executor = std::make_shared<i2c::BusExecutor>(make_session(config));
+    auto executor = std::make_shared<i2c::BusExecutor>(make_bus(config));
     const i2c::Status start_status = executor->start();
 
     state.i2c_executor_running = start_status.is_ok();
@@ -451,11 +454,11 @@ i2c::IoStats io_stats_for(uint8_t address) {
     if (!executor) {
         return i2c::IoStats{};
     }
-    // Fetch the session once (each session() call takes the executor mutex).
-    // The shared_ptr keeps the executor and its owned session alive for the
-    // read; the stats accessor is internally synchronized.
-    i2c::ISession *session = executor->session();
-    return session->io_stats_for(address);
+    // Fetch the bus once (each bus() call takes the executor mutex). The
+    // shared_ptr keeps the executor and its owned bus alive for the read; the
+    // stats accessor is internally synchronized.
+    i2c::I2cBus *bus = executor->bus();
+    return bus->io_stats_for(address);
 }
 
 i2c::Status submit_i2c_job(const std::string &job_name, std::chrono::milliseconds timeout, i2c::BusExecutor::Job job) {
@@ -518,9 +521,9 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     // Sampling is funneled through the shared executor so reads, identity
     // queries, and safe control calls all share one bus-serialization point.
     i2c::Status status =
-        submit_i2c_job("sample:" + device_id, std::chrono::milliseconds(timeout_ms), [&](i2c::ISession &session) {
+        submit_i2c_job("sample:" + device_id, std::chrono::milliseconds(timeout_ms), [&](i2c::I2cBus &bus) {
             i2c::EzoDeviceBinding binding;
-            i2c::Status bind_status = i2c::bind_ezo_i2c_device(session, static_cast<uint8_t>(spec.address), binding);
+            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(spec.address), binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
             }

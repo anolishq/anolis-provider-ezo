@@ -214,10 +214,9 @@ sdk::AdapterCallResult execute_safe_call(const runtime::RuntimeState& state, con
     }
 
     const i2c::Status status = runtime::submit_i2c_job(
-        "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout, [&](i2c::ISession& session) {
+        "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout, [&](i2c::I2cBus& bus) {
             i2c::EzoDeviceBinding binding;
-            i2c::Status bind_status =
-                i2c::bind_ezo_i2c_device(session, static_cast<uint8_t>(device.spec.address), binding);
+            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(device.spec.address), binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
             }
