@@ -4,6 +4,29 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-22
+
+### Changed
+
+- Mock mode now runs through the bus (the follow-up noted in 0.3.2). A new
+  `EzoCannedBus` answers the real EZO wire protocol below the transport
+  (`?I,<code>,mock-1.0` identity, `?O,<tokens>` output config, a value CSV whose
+  width matches the enabled outputs, control-command ACKs), so `mock://` now
+  exercises the real EZO C-driver command + parse path instead of synthesizing
+  samples above the bus. The above-bus mock synthesis (`fill_mock_identity` /
+  `build_mock_sample` and the control-call short-circuit) is removed — mock and
+  hardware now run the identical provider path, differing only in which
+  `I2cBus` is built. Device settle timing is routed through `bus.delay_us`, so
+  the canned bus is instant while real hardware still sleeps (behaviour
+  unchanged). Mock read values are unchanged. (anolis-provider-sdk#19, #106)
+
+### Added
+
+- Always-on fault injection in mock: a fault spec on the `mock://` query
+  (`mock://bus?read_fail_every=3&corrupt_every=5&…`) wraps the canned bus in the
+  SDK `FaultInjectingI2cBus`, so tests drive real wire faults (NAK, timeout,
+  short/corrupt reads, dropout, latency) over the real decode path. (#106)
+
 ## [0.3.2] - 2026-07-22
 
 ### Changed
@@ -241,7 +264,8 @@ only.
 
 - Hardware configs moved to `anolis` main repo; no longer tracked here.
 
-[Unreleased]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/anolishq/anolis-provider-ezo/compare/v0.2.7...v0.3.0
