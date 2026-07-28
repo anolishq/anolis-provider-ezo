@@ -163,3 +163,33 @@ TEST(EzoProviderRuntimeTest, ResolveFunctionId) {
     EXPECT_EQ(*resolved, anolis_provider_ezo::runtime::kFunctionFind);
     EXPECT_FALSE(rt.resolve_function_id("ph0", "no_such_fn").has_value());
 }
+
+TEST(EzoProviderRuntimeTest, DeviceHealthReportsStateForLiveDevice) {
+    // ezo#87: a live, freshly-sampled device carries an engaged state override.
+    // (The FAULT/STALE branches are trivial in device_health() and the SDK tests
+    // pin that a provider-supplied state reaches the wire.)
+    auto rt = make_ready_runtime();
+    const auto h = rt.device_health("ph0");
+    ASSERT_TRUE(h.state.has_value());
+    EXPECT_EQ(*h.state, adpp::DeviceHealth::STATE_OK);
+    EXPECT_EQ(h.message.value_or(""), "ok");
+
+    // An excluded/unknown id leaves state disengaged so the SDK's UNREACHABLE wins.
+    const auto ghost = rt.device_health("ghost");
+    EXPECT_FALSE(ghost.state.has_value());
+}
+
+TEST(EzoProviderRuntimeTest, ProviderHealthEmitsAggregateMetrics) {
+    // ezo#88 Part 1: provider-level aggregate metrics from one snapshot.
+    auto rt = make_ready_runtime();
+    const auto h = rt.provider_health();
+    EXPECT_EQ(h.metrics.at("configured_devices"), "2");
+    EXPECT_EQ(h.metrics.at("active_devices"), "2");
+    EXPECT_TRUE(h.metrics.contains("excluded_devices"));
+    EXPECT_TRUE(h.metrics.contains("call_success_total"));
+    EXPECT_TRUE(h.metrics.contains("call_failure_total"));
+    EXPECT_EQ(h.metrics.at("bus_path"), "mock://unit-test-i2c");
+    EXPECT_TRUE(h.metrics.contains("i2c_jobs_submitted"));
+    // Executor is running in mock mode -> no escalated DEGRADED state.
+    EXPECT_FALSE(h.state.has_value());
+}
