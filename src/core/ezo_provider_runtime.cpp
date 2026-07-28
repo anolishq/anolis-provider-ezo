@@ -309,11 +309,11 @@ sdk::ReadinessReport EzoProviderRuntime::readiness() const {
 }
 
 sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& device_id) const {
-    // Restore ezo's pre-migration per-device metrics (SDK#9) from ONE snapshot, so
-    // last_seen and the age metrics are a single atomic view. The per-device STATE
-    // nuance (STALE/FAULT) is intentionally NOT restored here: the SDK derives
-    // device state from readiness() (active -> OK, excluded -> UNREACHABLE); a
-    // per-device device_state hook is a separate deferred follow-up.
+    // Restore ezo's pre-migration per-device metrics + STATE nuance (ezo#87) from
+    // ONE snapshot, so last_seen, the age metrics, and the derived state are a
+    // single atomic view. For a live device the SDK's readiness-derived state
+    // (active -> OK) is overridden here via DeviceHealthExtra.state (SDK v0.1.5);
+    // excluded devices keep the SDK's UNREACHABLE.
     const runtime::RuntimeState state = runtime::snapshot();
     sdk::DeviceHealthExtra extra;
     auto& m = extra.metrics;
@@ -359,6 +359,24 @@ sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& devi
         if (!device->sample.last_error.empty()) {
             m["last_error"] = device->sample.last_error;
         }
+
+        // ezo#87: derive the live device's runtime state, which readiness() alone
+        // cannot express. FAULT (last read failed) and STALE (sample too old) are
+        // distinct; a fresh, successful read is OK; an active device with no
+        // sample yet is UNREACHABLE.
+        if (!device->sample.has_sample) {
+            extra.state = adpp::DeviceHealth::STATE_UNREACHABLE;
+            extra.message = "no sample available yet";
+        } else if (!device->sample.last_read_ok) {
+            extra.state = adpp::DeviceHealth::STATE_FAULT;
+            extra.message = "latest read failed; cached sample may be stale";
+        } else {
+            const auto age_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - device->sample.sampled_at).count();
+            const bool stale = age_ms > stale_after_ms(state);
+            extra.state = stale ? adpp::DeviceHealth::STATE_STALE : adpp::DeviceHealth::STATE_OK;
+            extra.message = stale ? "sample is stale" : "ok";
+        }
         return extra;
     }
 
@@ -378,6 +396,53 @@ sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& devi
             m["io_retried_attempts"] = std::to_string(io.retried_attempts);
             break;
         }
+    }
+    return extra;
+}
+
+sdk::ProviderHealthExtra EzoProviderRuntime::provider_health() const {
+    // ezo#88 Part 1: restore ezo's pre-migration provider aggregate metrics from
+    // ONE snapshot. The SDK adds the fixed lifecycle keys (which win on collision).
+    const runtime::RuntimeState state = runtime::snapshot();
+    sdk::ProviderHealthExtra extra;
+    auto& m = extra.metrics;
+
+    uint64_t call_success_total = 0;
+    uint64_t call_failure_total = 0;
+    for (const auto& device : state.active_devices) {
+        call_success_total += device.call_success_count;
+        call_failure_total += device.call_failure_count;
+    }
+
+    m["configured_devices"] = std::to_string(state.config.devices.size());
+    m["active_devices"] = std::to_string(state.active_devices.size());
+    m["excluded_devices"] = std::to_string(state.excluded_devices.size());
+    m["call_success_total"] = std::to_string(call_success_total);
+    m["call_failure_total"] = std::to_string(call_failure_total);
+    m["bus_path"] = state.config.bus_path;
+    m["i2c_executor_running"] = state.i2c_executor_running ? "true" : "false";
+    m["i2c_queue_depth"] = std::to_string(state.i2c_metrics.queue_depth);
+    m["i2c_jobs_submitted"] = std::to_string(state.i2c_metrics.submitted);
+    m["i2c_jobs_started"] = std::to_string(state.i2c_metrics.started);
+    m["i2c_jobs_succeeded"] = std::to_string(state.i2c_metrics.succeeded);
+    m["i2c_jobs_failed"] = std::to_string(state.i2c_metrics.failed);
+    m["i2c_jobs_timed_out"] = std::to_string(state.i2c_metrics.timed_out);
+    m["i2c_jobs_cancelled"] = std::to_string(state.i2c_metrics.cancelled);
+    if (!state.i2c_status_message.empty()) {
+        m["i2c_status"] = state.i2c_status_message;
+    }
+    if (!state.i2c_metrics.last_error.empty()) {
+        m["i2c_last_error"] = state.i2c_metrics.last_error;
+    }
+    for (const auto& excluded : state.excluded_devices) {
+        m["excluded_reason." + excluded.spec.id] = excluded.reason;
+    }
+
+    // Escalate-only: report DEGRADED when the I2C executor has stopped, a state
+    // the startup readiness report cannot express (it may show zero failures).
+    if (!state.i2c_executor_running) {
+        extra.state = adpp::ProviderHealth::STATE_DEGRADED;
+        extra.message = "i2c executor is not running";
     }
     return extra;
 }

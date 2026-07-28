@@ -4,6 +4,23 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Per-device STALE/FAULT health state (#87): `device_health` now derives a live
+  device's runtime state — `STATE_FAULT` when the latest read failed,
+  `STATE_STALE` when the cached sample is older than its freshness window, `OK`
+  when fresh, `UNREACHABLE` when active but not yet sampled — via the SDK v0.1.5
+  `DeviceHealthExtra.state` override, restoring the pre-migration nuance.
+- Provider-level aggregate health metrics (#88 part 1): `provider_health` emits
+  `configured/active/excluded_devices`, `call_success/failure_total`,
+  `excluded_reason.<id>`, `bus_path`, and the `i2c_*` counters, and reports
+  `DEGRADED` when the I2C executor is stopped, via the SDK v0.1.5
+  `ProviderHealthExtra` hook.
+
+### Changed
+
+- Pin the provider SDK to v0.1.5 (from v0.1.4) for the health hooks above.
+
 ## [0.3.3] - 2026-07-22
 
 ### Changed
