@@ -6,6 +6,26 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ### Added
 
+- `--config-schema` (#110, executable profile v1 §2): prints the provider's
+  config JSON Schema in the versioned envelope, emitted from the SDK v0.2.0
+  declare-once toolkit. The SAME declaration now drives `--check-config`
+  validation (all errors reported at once, with dotted paths) and typed value
+  extraction — the advertised schema and the enforced validation cannot drift.
+  Titles/defaults/placeholders carry the form-authoring knowledge the
+  workbench previously hardcoded (anolis-workbench#270).
+
+### Changed
+
+- Config validation is schema-honest and STRICTER in corners the old
+  hand-written parser let through (all shipped configs unaffected): quoted
+  numerics (`timeout_ms: "300"`) and stoi trailing junk (`5abc`) are type
+  errors; plain non-string scalars against string fields (`bus_path: 123`,
+  `label: 5`, `id: 0x5`) are type errors; quoted decimal addresses (`"97"`)
+  are rejected (strict `0xNN` string form); duplicated map keys are rejected
+  outright; integer fields cap at int32 max explicitly. One loosening: plain
+  octal addresses (`0o141`) now parse to their correct value instead of being
+  misread as base-10 and rejected.
+
 - Per-device STALE/FAULT health state (#87): `device_health` now derives a live
   device's runtime state — `STATE_FAULT` when the latest read failed,
   `STATE_STALE` when the cached sample is older than its freshness window, `OK`
