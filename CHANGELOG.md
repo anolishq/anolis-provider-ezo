@@ -4,6 +4,8 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-08-01
+
 ### Added
 
 - `--config-schema` (#110, executable profile v1 §2): prints the provider's
