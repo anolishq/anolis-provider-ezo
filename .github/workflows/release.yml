@@ -76,6 +76,25 @@ jobs:
             -o "anolis-provider-ezo-${VERSION}-source.tar.gz" \
             HEAD
 
+      - name: Emit config schema envelope (executable profile v1 §2)
+        working-directory: anolis-provider-ezo
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BINARY="build/ci-linux-release/anolis-provider-ezo"
+          ENVELOPE="anolis-provider-ezo-${VERSION}-config-schema.json"
+          "${BINARY}" --config-schema > "${ENVELOPE}"
+          python3 -c "import json; d=json.load(open('${ENVELOPE}')); v=d.get('config_schema_version'); assert isinstance(v, int) and not isinstance(v, bool) and v >= 1 and isinstance(d.get('schema'), dict), 'invalid envelope'"
+          SHA=$(sha256sum "${ENVELOPE}" | awk '{print $1}')
+          jq -n \
+            --argjson schema_version 1 \
+            --arg repo "anolishq/anolis-provider-ezo" \
+            --arg component "provider-config-schema" \
+            --arg version "${VERSION}" \
+            --arg asset "${ENVELOPE}" \
+            --arg sha256 "${SHA}" \
+            '{schema_version: $schema_version, repo: $repo, component: $component, version: $version, asset: $asset, sha256: $sha256}' \
+            > "anolis-provider-ezo-${VERSION}-config-schema-manifest.json"
+
       - name: Generate checksums
         working-directory: anolis-provider-ezo
         run: sha256sum anolis-provider-ezo-*.tar.gz > SHA256SUMS
@@ -102,6 +121,8 @@ jobs:
         with:
           files: |
             anolis-provider-ezo/anolis-provider-ezo-*.tar.gz
+            anolis-provider-ezo/anolis-provider-ezo-*-config-schema.json
+            anolis-provider-ezo/anolis-provider-ezo-*-config-schema-manifest.json
             anolis-provider-ezo/SHA256SUMS
             anolis-provider-ezo/manifest.json
           generate_release_notes: true
