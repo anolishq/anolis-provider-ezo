@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "config/config_schema.hpp"
+
 namespace anolis_provider_ezo {
 namespace {
 
@@ -95,6 +97,53 @@ devices:
     EXPECT_EQ(parsed.devices[5].type, EzoDeviceType::Hum);
 }
 
+TEST(ProviderConfigTest, SchemaDefaultsAgreeWithBinaryDefaults) {
+    // The schema's advertised defaults must be what the binary actually does
+    // when the key is absent — a workbench form is rendered from the schema.
+    const TempConfigFile config(R"(
+hardware:
+  bus_path: /dev/i2c-1
+discovery:
+  mode: manual
+)");
+    const ProviderConfig parsed = load_config(config.path().string());
+    const ProviderConfig defaults;
+    EXPECT_EQ(parsed.provider_name, defaults.provider_name);
+    EXPECT_EQ(parsed.query_delay_us, defaults.query_delay_us);
+    EXPECT_EQ(parsed.timeout_ms, defaults.timeout_ms);
+    EXPECT_EQ(parsed.retry_count, defaults.retry_count);
+
+    // ...and the declared schema carries those same values as its defaults.
+    const auto &root_spec = provider_schema().root().spec();
+    for (const auto &member : root_spec.members) {
+        if (member.key == "provider") {
+            for (const auto &field : member.object->spec().members) {
+                if (field.key == "name") {
+                    ASSERT_TRUE(field.field->spec().default_string.has_value());
+                    EXPECT_EQ(*field.field->spec().default_string, defaults.provider_name);
+                }
+            }
+        }
+        if (member.key == "hardware") {
+            for (const auto &field : member.object->spec().members) {
+                if (!field.field.has_value()) {
+                    continue;
+                }
+                const auto &spec = field.field->spec();
+                if (field.key == "query_delay_us") {
+                    EXPECT_EQ(spec.default_int, defaults.query_delay_us);
+                }
+                if (field.key == "timeout_ms") {
+                    EXPECT_EQ(spec.default_int, defaults.timeout_ms);
+                }
+                if (field.key == "retry_count") {
+                    EXPECT_EQ(spec.default_int, defaults.retry_count);
+                }
+            }
+        }
+    }
+}
+
 TEST(ProviderConfigTest, RejectsDiscoveryModeOtherThanManual) {
     expect_config_error(R"(
 hardware:
@@ -119,7 +168,7 @@ devices:
     type: do
     address: 99
 )",
-                        "Duplicate devices[].address");
+                        "duplicate address");
 }
 
 TEST(ProviderConfigTest, RejectsUnknownDeviceType) {
@@ -133,7 +182,7 @@ devices:
     type: xyz
     address: 0x61
 )",
-                        "Invalid devices[].type");
+                        "invalid value");
 }
 
 }  // namespace anolis_provider_ezo

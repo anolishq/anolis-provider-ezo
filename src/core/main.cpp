@@ -2,7 +2,9 @@
 #include <iostream>
 #include <string>
 
+#include "anolis/provider_sdk/config.hpp"
 #include "anolis/provider_sdk/runtime.hpp"
+#include "config/config_schema.hpp"
 #include "config/provider_config.hpp"
 #include "core/ezo_provider_runtime.hpp"
 #include "core/runtime_state.hpp"
@@ -25,6 +27,7 @@ void set_binary_mode_stdio() {
 void print_usage(const char *program_name) {
     std::cout << "Usage:\n"
               << "  " << program_name << " --version\n"
+              << "  " << program_name << " --config-schema\n"
               << "  " << program_name << " --check-config <path>\n"
               << "  " << program_name << " --config <path>\n\n"
               << "Implements ADPP v1 provider for EZO devices.\n";
@@ -42,6 +45,17 @@ int main(int argc, char **argv) {
         const std::string arg = argv[i];
         if (arg == "--version") {
             std::cout << ANOLIS_PROVIDER_EZO_VERSION << '\n';
+            return 0;
+        }
+        if (arg == "--config-schema") {
+            // Configless (executable profile v1 §2): the envelope is the only
+            // stdout output; diagnostics go to stderr. Handled before any
+            // other work can touch stdout.
+            anolis::provider_sdk::config::EnvelopeOptions options;
+            options.provider_name = "anolis-provider-ezo";
+            options.extra_string_entries.emplace_back("provider_version", ANOLIS_PROVIDER_EZO_VERSION);
+            anolis::provider_sdk::config::write_config_schema_envelope(std::cout,
+                                                                       anolis_provider_ezo::provider_schema(), options);
             return 0;
         }
         if (arg == "--check-config" && i + 1 < argc) {
