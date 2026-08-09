@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <format>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -286,7 +288,14 @@ int stale_after_ms(const ProviderConfig &config) {
     // that is a transaction latency, and using it here declared samples stale
     // after 900 ms while they were only refreshed every 2500 ms, so healthy
     // probes flapped OK<->STALE roughly once a second forever (ezo#114).
-    return std::max(sample_interval_ms(config) * 3, kMinStaleAfterMs);
+    //
+    // Widened to 64-bit before the multiply: at int width, a cadence above
+    // INT_MAX/3 wraps negative and the bound collapses to the floor — which is
+    // the original bug (bound shorter than cadence) reappearing at the top of
+    // the range. The schema caps the field far below that; this is the backstop
+    // for a value set in code.
+    const int64_t bound = std::max<int64_t>(static_cast<int64_t>(sample_interval_ms(config)) * 3, kMinStaleAfterMs);
+    return static_cast<int>(std::min<int64_t>(bound, std::numeric_limits<int>::max()));
 }
 
 void shutdown() {
@@ -309,6 +318,18 @@ void reset() {
 
 void initialize(const ProviderConfig &config) {
     reset();
+
+    // The cached sample may be reused for one transaction's worth of time; if
+    // that window reaches the declared cadence, a poll can land inside it and be
+    // served the cache instead of a fresh read — halving the effective rate and
+    // pushing samples back over the freshness bound. Same failure as ezo#114,
+    // reached from the other side, so say so rather than letting it be silent.
+    if (query_latency_ms(config) >= sample_interval_ms(config)) {
+        logging::warning(std::format(
+            "hardware.query_delay_us implies a {} ms cache-reuse window, which is not shorter than the {} ms "
+            "hardware.sample_interval_ms; samples may be served from cache and reported stale",
+            query_latency_ms(config), sample_interval_ms(config)));
+    }
 
     RuntimeState state;
     state.config = config;
@@ -487,6 +508,12 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         });
 
     const auto now = std::chrono::system_clock::now();
+    const auto now_steady = std::chrono::steady_clock::now();
+    // Emitted after the lock is released: logging::write goes to unbuffered
+    // cerr, so it is a write(2) on a pipe the runtime owns. Blocking on that
+    // while holding g_mutex would stall every snapshot, health query and job
+    // submission in the provider.
+    std::string cadence_warning;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         auto it = find_active_device_unlocked(g_state.active_devices, device_id);
@@ -497,23 +524,32 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         if (status.is_ok()) {
             // The provider cannot see its consumer's poll rate, so the only
             // evidence that hardware.sample_interval_ms is wrong is the gap
-            // between two successful samples exceeding the bound derived from
-            // it. Say so once per device rather than flapping OK<->STALE in
-            // silence, which is how ezo#114 survived unnoticed.
-            if (it->sample.has_sample && !it->sample.stale_gap_warned) {
+            // between two *consecutive successful* samples exceeding the bound
+            // derived from it. Say so once per device rather than flapping
+            // OK<->STALE in silence, which is how ezo#114 survived unnoticed.
+            //
+            // last_read_ok still describes the previous read here. Requiring it
+            // matters: the failure branch below deliberately leaves the sample
+            // stamps alone, so after any run of failed reads the next success
+            // would otherwise measure a gap spanning the whole outage and
+            // blame the cadence for a transport problem — advice that, followed,
+            // would inflate the bound and blind real staleness detection.
+            if (it->sample.has_sample && it->sample.last_read_ok && !it->sample.stale_gap_warned) {
                 const auto gap_ms =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(now - it->sample.sampled_at).count();
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - it->sample.sampled_at_steady)
+                        .count();
                 const int bound_ms = stale_after_ms(config);
                 if (gap_ms > bound_ms) {
                     it->sample.stale_gap_warned = true;
-                    logging::warning(std::format(
+                    cadence_warning = std::format(
                         "device '{}' samples refresh every ~{} ms but are declared stale after {} ms; "
                         "raise hardware.sample_interval_ms (currently {} ms) to match the consumer's poll interval",
-                        device_id, gap_ms, bound_ms, sample_interval_ms(config)));
+                        device_id, gap_ms, bound_ms, sample_interval_ms(config));
                 }
             }
             it->sample.signals = std::move(new_signals);
             it->sample.sampled_at = now;
+            it->sample.sampled_at_steady = now_steady;
             it->sample.has_sample = true;
             it->sample.last_read_ok = true;
             it->sample.last_error.clear();
@@ -524,6 +560,9 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             it->sample.last_error = status.message;
             ++it->sample.failure_count;
         }
+    }
+    if (!cadence_warning.empty()) {
+        logging::warning(cadence_warning);
     }
     return status;
 }

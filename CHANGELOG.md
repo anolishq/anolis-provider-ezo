@@ -4,6 +4,16 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`hardware.sample_interval_ms`** (#114, default **2500**): how often this
+  provider expects its samples to be refreshed. It has no sampling thread of its
+  own — it samples when read — so this is the operator's statement of the
+  consumer's poll interval, and should mirror the runtime's
+  `polling.interval_ms`. Signal freshness bounds and `poll_hint_hz` derive from
+  it. Optional; the default matches the shipped runtime, so existing configs need
+  no change.
+
 ### Fixed
 
 - **Healthy probes reported STALE for most of every poll cycle** (#114).
@@ -40,8 +50,22 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
   (which declares `SignalSpec.stale_after_ms` to the runtime) and
   `core/ezo_provider_runtime.cpp` (which makes this provider's own STALE
   verdict). Both copies are collapsed into one exported
-  `runtime::stale_after_ms`, so the bound advertised and the bound enforced
-  cannot drift apart. A test pins that they agree.
+  `runtime::stale_after_ms`, so there is a single definition of the rule. A test
+  asserts the advertised and enforced bounds agree — it guards against the
+  duplication being reintroduced, and passes against the old code too.
+
+- The cadence-mismatch warning measures the gap on a **monotonic** clock and
+  only between two *consecutive successful* reads. A Pi has no RTC, so NTP steps
+  the wall clock forward shortly after boot; and the failure path deliberately
+  leaves the sample stamps alone, so a gap spanning a run of failed reads would
+  otherwise blame the cadence for a transport fault. Either would have latched
+  the once-per-device warning on a false positive and permanently suppressed the
+  real one.
+
+- The provider warns at startup if `query_delay_us` implies a cache-reuse window
+  that is not shorter than `sample_interval_ms`. A poll landing inside that
+  window is served from cache rather than a fresh read, halving the effective
+  rate — the same failure as #114 reached from the other side.
 
 ## [0.3.4] - 2026-08-01
 

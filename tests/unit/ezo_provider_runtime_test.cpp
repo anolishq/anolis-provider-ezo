@@ -3,8 +3,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "anolis/provider_sdk/result.hpp"
@@ -269,4 +271,93 @@ TEST(EzoStalenessTest, PollHintAdvertisesTheRefreshCadence) {
 
     // And the hinted period must fit inside the freshness bound it ships with.
     EXPECT_LT(1000.0 / hint_hz, static_cast<double>(capabilities.signals(0).stale_after_ms()));
+}
+
+// --- ezo#114: the cadence-mismatch warning ---
+
+namespace {
+
+// Latches once per device when two consecutive successful samples are further
+// apart than the derived freshness bound. Observable via the snapshot, which is
+// cheaper and less brittle than capturing stderr.
+bool cadence_warned(const std::string& device_id) {
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    for (const auto& device : state.active_devices) {
+        if (device.spec.id == device_id) {
+            return device.sample.stale_gap_warned;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST(EzoCadenceWarningTest, StaysQuietWhenSamplesKeepUp) {
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 2500;  // bound 7500 ms; the test takes milliseconds
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+
+    EXPECT_FALSE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, FiresWhenSamplesLagTheDeclaredInterval) {
+    // Floored bound is 500 ms; refresh either side of a longer sleep.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_FALSE(cadence_warned("ph0"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+
+    EXPECT_TRUE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, IgnoresAGapSpannedByFailedReads) {
+    // The regression: the failure branch deliberately does not move the sample
+    // stamps, so without requiring the PREVIOUS read to have succeeded, the next
+    // success measures a gap covering the whole outage and blames the cadence
+    // for a transport fault. Following that advice would inflate the bound and
+    // blind real staleness detection — the very outcome ezo#114 argues against.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;  // bound floors to 500 ms
+    // Let startup probe/sample succeed, then fail a long run of reads.
+    config.bus_path = "mock://cadence-outage?drop_after=12&drop_for=60";
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+
+    // Burn through the drop window; these fail and must not move the stamps.
+    bool saw_failure = false;
+    for (int i = 0; i < 40; ++i) {
+        if (!anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok()) {
+            saw_failure = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(saw_failure) << "fault injection did not produce a failed read";
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    // Recover: drive until a read succeeds again.
+    bool recovered = false;
+    for (int i = 0; i < 200; ++i) {
+        if (anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok()) {
+            recovered = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(recovered) << "device never recovered from the injected fault";
+
+    EXPECT_FALSE(cadence_warned("ph0")) << "an outage was misreported as a cadence mismatch";
+    anolis_provider_ezo::runtime::reset();
 }

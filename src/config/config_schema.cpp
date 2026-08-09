@@ -46,7 +46,9 @@ cfg::Schema build_schema() {
                                     "to the runtime's polling.interval_ms. Signal freshness bounds and "
                                     "the advertised poll hint derive from it.")
                        .min_int(1)
-                       .max_int(2147483647)
+                       // A day. Far above any real poll loop, and low enough
+                       // that the 3x freshness derivation cannot overflow.
+                       .max_int(86400000)
                        .default_int(2500));
     hardware.field(
         cfg::integer_field("timeout_ms").title("I/O timeout (ms)").min_int(1).max_int(2147483647).default_int(300));

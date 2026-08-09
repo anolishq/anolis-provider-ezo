@@ -38,6 +38,12 @@ struct DeviceSampleCache {
     uint64_t success_count = 0;
     uint64_t failure_count = 0;
     uint64_t sequence = 0;
+    // Monotonic twin of `sampled_at`, used only to measure the gap between two
+    // successful samples. `sampled_at` is a system_clock stamp because it goes
+    // on the wire, and system_clock is not monotonic — a Pi has no RTC, so NTP
+    // steps it forward seconds after boot and a wall-clock gap would be
+    // fabricated (ezo#114).
+    std::chrono::steady_clock::time_point sampled_at_steady{};
     // Latched so the cadence-mismatch warning is emitted once per device, not
     // once per sample (ezo#114).
     bool stale_gap_warned = false;

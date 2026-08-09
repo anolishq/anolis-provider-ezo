@@ -3,7 +3,15 @@ provider:
 
 hardware:
   bus_path: /dev/i2c-1
+  # How long an EZO chip needs between a command write and its reply read.
+  # One transaction's latency — not a sampling cadence.
   query_delay_us: 300000
+  # How often samples are refreshed. This provider has no sampling thread; it
+  # samples when the runtime reads it, so set this to the runtime's
+  # polling.interval_ms. Signal freshness and the advertised poll hint derive
+  # from it, and it warns once per device if the real gap turns out to be
+  # longer than declared.
+  sample_interval_ms: 2500
   timeout_ms: 300
   retry_count: 2
 
