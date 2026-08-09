@@ -579,6 +579,14 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             it->sample.last_read_ok = false;
             it->sample.last_error = status.message;
             ++it->sample.failure_count;
+            // Break the streak too. The lag counter is only touched in the
+            // success branch above, and the last_read_ok guard there skips the
+            // whole block — including its reset — on the first success after a
+            // failure. Without this, isolated over-bound gaps separated by
+            // outages would accumulate and eventually latch the warning on
+            // three unrelated transients: the exact failure the streak exists
+            // to prevent, reached through the one path it did not cover.
+            it->sample.consecutive_lagging_gaps = 0;
         }
     }
     if (!cadence_warning.empty()) {

@@ -280,6 +280,16 @@ namespace {
 // Latches once per device when two consecutive successful samples are further
 // apart than the derived freshness bound. Observable via the snapshot, which is
 // cheaper and less brittle than capturing stderr.
+uint32_t cadence_streak(const std::string& device_id) {
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    for (const auto& device : state.active_devices) {
+        if (device.spec.id == device_id) {
+            return device.sample.consecutive_lagging_gaps;
+        }
+    }
+    return 0;
+}
+
 bool cadence_warned(const std::string& device_id) {
     const auto state = anolis_provider_ezo::runtime::snapshot();
     for (const auto& device : state.active_devices) {
@@ -321,6 +331,40 @@ TEST(EzoCadenceWarningTest, FiresOnlyAfterASustainedRun) {
     }
 
     EXPECT_TRUE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, AFailedReadBreaksTheStreak) {
+    // The lag counter is only touched in the success branch, whose last_read_ok
+    // guard skips the whole block — reset included — on the first success after
+    // a failure. So the failure branch must clear the streak itself, or
+    // over-bound gaps separated by outages accumulate and eventually latch the
+    // warning on three unrelated transients: the failure the streak exists to
+    // prevent, reached through the one path it did not cover.
+    //
+    // drop_after=14&drop_for=1 fails exactly the third refresh below (op counts
+    // are global across both devices and the startup probes; verified by
+    // sweeping the window). Asserting the counter directly rather than waiting
+    // for the latch keeps this from depending on the streak length.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;  // bound floors to 500 ms
+    config.bus_path = "mock://streak-outage?drop_after=14&drop_for=1";
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_EQ(cadence_streak("ph0"), 1u);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_EQ(cadence_streak("ph0"), 2u);
+
+    ASSERT_FALSE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok())
+        << "fault injection did not fail the third refresh";
+    EXPECT_EQ(cadence_streak("ph0"), 0u) << "an outage left the lag streak standing";
+
+    EXPECT_FALSE(cadence_warned("ph0"));
     anolis_provider_ezo::runtime::reset();
 }
 
