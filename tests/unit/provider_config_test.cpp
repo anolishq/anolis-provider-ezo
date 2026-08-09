@@ -6,6 +6,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -110,6 +111,7 @@ discovery:
     const ProviderConfig defaults;
     EXPECT_EQ(parsed.provider_name, defaults.provider_name);
     EXPECT_EQ(parsed.query_delay_us, defaults.query_delay_us);
+    EXPECT_EQ(parsed.sample_interval_ms, defaults.sample_interval_ms);
     EXPECT_EQ(parsed.timeout_ms, defaults.timeout_ms);
     EXPECT_EQ(parsed.retry_count, defaults.retry_count);
 
@@ -125,21 +127,44 @@ discovery:
             }
         }
         if (member.key == "hardware") {
+            // Every hardware field must be accounted for here. Enumerating by
+            // name silently exempts any field added later, and a schema default
+            // that disagrees with the binary is a lie told to every consumer of
+            // --config-schema. (Note the workbench renders from a *vendored*
+            // snapshot of that envelope, so this test guards the envelope's
+            // honesty, not the workbench form — that needs a re-sync.) Track
+            // what we assert and require it to be the whole set.
+            std::set<std::string> asserted;
+            std::set<std::string> declared;
             for (const auto &field : member.object->spec().members) {
                 if (!field.field.has_value()) {
                     continue;
                 }
+                declared.insert(field.key);
                 const auto &spec = field.field->spec();
                 if (field.key == "query_delay_us") {
                     EXPECT_EQ(spec.default_int, defaults.query_delay_us);
+                    asserted.insert(field.key);
+                }
+                if (field.key == "sample_interval_ms") {
+                    EXPECT_EQ(spec.default_int, defaults.sample_interval_ms);
+                    asserted.insert(field.key);
                 }
                 if (field.key == "timeout_ms") {
                     EXPECT_EQ(spec.default_int, defaults.timeout_ms);
+                    asserted.insert(field.key);
                 }
                 if (field.key == "retry_count") {
                     EXPECT_EQ(spec.default_int, defaults.retry_count);
+                    asserted.insert(field.key);
+                }
+                if (field.key == "bus_path") {
+                    // Required, no default to agree with.
+                    asserted.insert(field.key);
                 }
             }
+            EXPECT_EQ(asserted, declared) << "a hardware field was added to the schema without a default-agreement "
+                                             "assertion here";
         }
     }
 }
@@ -169,6 +194,50 @@ devices:
     address: 99
 )",
                         "duplicate address");
+}
+
+TEST(ProviderConfigTest, ParsesSampleIntervalMs) {
+    // ezo#114: the field the whole fix rests on. Nothing asserted that a YAML
+    // value actually reached the struct.
+    const TempConfigFile config(R"(
+hardware:
+  bus_path: /dev/i2c-1
+  sample_interval_ms: 1000
+discovery:
+  mode: manual
+)");
+    const ProviderConfig parsed = load_config(config.path().string());
+    EXPECT_EQ(parsed.sample_interval_ms, 1000);
+    // Independent of query_delay_us, which keeps its own default.
+    EXPECT_EQ(parsed.query_delay_us, ProviderConfig{}.query_delay_us);
+}
+
+TEST(ProviderConfigTest, RejectsOutOfRangeSampleIntervalMs) {
+    const std::string body = R"(
+hardware:
+  bus_path: /dev/i2c-1
+  sample_interval_ms: %s
+discovery:
+  mode: manual
+)";
+    const auto with = [&body](const std::string &value) {
+        std::string out = body;
+        out.replace(out.find("%s"), 2, value);
+        return out;
+    };
+
+    expect_config_error(with("0"), "sample_interval_ms");
+    // The cap exists so the 3x freshness derivation cannot overflow; pin both
+    // sides of it, not just the far end.
+    {
+        const TempConfigFile ok(with("86400000"));
+        EXPECT_EQ(load_config(ok.path().string()).sample_interval_ms, 86400000);
+    }
+    expect_config_error(with("86400001"), "sample_interval_ms");
+    // Capped well below INT_MAX/3 so the 3x freshness derivation cannot
+    // overflow into a bound shorter than the cadence.
+    expect_config_error(with("2147483647"), "sample_interval_ms");
+    expect_config_error(with("abc"), "sample_interval_ms");
 }
 
 TEST(ProviderConfigTest, RejectsUnknownDeviceType) {

@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <format>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -41,8 +43,13 @@ std::mutex g_mutex;
 RuntimeState g_state;
 std::shared_ptr<i2c::BusExecutor> g_executor;
 
-constexpr int kMinSamplePeriodMs = 50;
+constexpr int kMinQueryLatencyMs = 50;
+constexpr int kMinSampleIntervalMs = 50;
 constexpr int kMinStaleAfterMs = 500;
+// Consecutive over-bound gaps before the cadence warning fires. Three is long
+// enough that a foreign device's RPC timeout cannot burn the latch, short
+// enough that a genuinely misdeclared interval is named within seconds.
+constexpr uint32_t kCadenceLagStreak = 3;
 
 using ArgSpec = anolis::deviceprovider::v1::ArgSpec;
 using FunctionSpec = anolis::deviceprovider::v1::FunctionSpec;
@@ -60,12 +67,6 @@ using devices::status_from_ezo_result;
 bool has_prefix(const std::string &value, const std::string &prefix) { return value.rfind(prefix, 0) == 0; }
 
 bool is_mock_mode(const ProviderConfig &config) { return has_prefix(config.bus_path, "mock://"); }
-
-int sample_period_ms(const ProviderConfig &config) {
-    return std::max(config.query_delay_us / 1000, kMinSamplePeriodMs);
-}
-
-int stale_after_ms(const ProviderConfig &config) { return std::max(sample_period_ms(config) * 3, kMinStaleAfterMs); }
 
 ezo_product_id_t expected_product_for_type(EzoDeviceType type) { return devices::adapter_for(type).expected_product; }
 
@@ -178,7 +179,7 @@ anolis::deviceprovider::v1::CapabilitySet build_capabilities(const ProviderConfi
         signal->set_description(defs[i].description);
         signal->set_value_type(anolis::deviceprovider::v1::VALUE_TYPE_DOUBLE);
         signal->set_unit(defs[i].unit);
-        signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_period_ms(config)));
+        signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_interval_ms(config)));
         signal->set_stale_after_ms(static_cast<uint32_t>(stale_after_ms(config)));
     }
     add_safe_function_specs(capabilities);
@@ -277,6 +278,30 @@ std::string build_startup_message(const RuntimeState &state) {
 
 }  // namespace
 
+int query_latency_ms(const ProviderConfig &config) {
+    return std::max(config.query_delay_us / 1000, kMinQueryLatencyMs);
+}
+
+int sample_interval_ms(const ProviderConfig &config) {
+    return std::max(config.sample_interval_ms, kMinSampleIntervalMs);
+}
+
+int stale_after_ms(const ProviderConfig &config) {
+    // Three refresh intervals: two may be missed before a sample is called
+    // stale. Derived from the declared cadence, never from query_delay_us —
+    // that is a transaction latency, and using it here declared samples stale
+    // after 900 ms while they were only refreshed every 2500 ms, so healthy
+    // probes flapped OK<->STALE roughly once a second forever (ezo#114).
+    //
+    // Widened to 64-bit before the multiply: at int width, a cadence above
+    // INT_MAX/3 wraps negative and the bound collapses to the floor — which is
+    // the original bug (bound shorter than cadence) reappearing at the top of
+    // the range. The schema caps the field far below that; this is the backstop
+    // for a value set in code.
+    const int64_t bound = std::max<int64_t>(static_cast<int64_t>(sample_interval_ms(config)) * 3, kMinStaleAfterMs);
+    return static_cast<int>(std::min<int64_t>(bound, std::numeric_limits<int>::max()));
+}
+
 void shutdown() {
     std::shared_ptr<i2c::BusExecutor> executor;
     {
@@ -297,6 +322,18 @@ void reset() {
 
 void initialize(const ProviderConfig &config) {
     reset();
+
+    // The cached sample may be reused for one transaction's worth of time; if
+    // that window reaches the declared cadence, a poll can land inside it and be
+    // served the cache instead of a fresh read — halving the effective rate and
+    // pushing samples back over the freshness bound. Same failure as ezo#114,
+    // reached from the other side, so say so rather than letting it be silent.
+    if (query_latency_ms(config) >= sample_interval_ms(config)) {
+        logging::warning(std::format(
+            "hardware.query_delay_us ({} us) implies a {} ms cache-reuse window, which is not shorter than the "
+            "{} ms hardware.sample_interval_ms; samples may be served from cache and reported stale",
+            config.query_delay_us, query_latency_ms(config), config.sample_interval_ms));
+    }
 
     RuntimeState state;
     state.config = config;
@@ -460,7 +497,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     }
 
     std::vector<SignalSample> new_signals;
-    const int timeout_ms = std::max(config.timeout_ms, sample_period_ms(config) + 1500);
+    const int timeout_ms = std::max(config.timeout_ms, query_latency_ms(config) + 1500);
     // Sampling is funneled through the shared executor so reads, identity
     // queries, and safe control calls all share one bus-serialization point.
     i2c::Status status =
@@ -475,6 +512,12 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         });
 
     const auto now = std::chrono::system_clock::now();
+    const auto now_steady = std::chrono::steady_clock::now();
+    // Emitted after the lock is released: logging::write goes to unbuffered
+    // cerr, so it is a write(2) on a pipe the runtime owns. Blocking on that
+    // while holding g_mutex would stall every snapshot, health query and job
+    // submission in the provider.
+    std::string cadence_warning;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         auto it = find_active_device_unlocked(g_state.active_devices, device_id);
@@ -483,8 +526,50 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         }
 
         if (status.is_ok()) {
+            // The provider cannot see its consumer's poll rate, so the only
+            // evidence that hardware.sample_interval_ms is wrong is the gap
+            // between two *consecutive successful* samples exceeding the bound
+            // derived from it. Say so once per device rather than flapping
+            // OK<->STALE in silence, which is how ezo#114 survived unnoticed.
+            //
+            // last_read_ok still describes the previous read here. Requiring it
+            // matters: the failure branch below deliberately leaves the sample
+            // stamps alone, so after any run of failed reads the next success
+            // would otherwise measure a gap spanning the whole outage and
+            // blame the cadence for a transport problem — advice that, followed,
+            // would inflate the bound and blind real staleness detection.
+            //
+            // One over-bound gap proves nothing, either. The runtime polls every
+            // provider and every device from a single serial loop, so one
+            // unrelated device hitting its RPC timeout stretches this device's
+            // gap with no read here failing and last_read_ok still true. The
+            // bench has already recorded 4.5 s cycles against a 2.5 s nominal.
+            // Warn only on a sustained run, and re-arm on any compliant gap —
+            // a latch burned by a transient would suppress the real warning for
+            // the life of the process, which is the failure this exists to end.
+            if (it->sample.has_sample && it->sample.last_read_ok && !it->sample.stale_gap_warned) {
+                const auto gap_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - it->sample.sampled_at_steady)
+                        .count();
+                const int bound_ms = stale_after_ms(config);
+                if (gap_ms > bound_ms) {
+                    ++it->sample.consecutive_lagging_gaps;
+                    if (it->sample.consecutive_lagging_gaps >= kCadenceLagStreak) {
+                        cadence_warning = std::format(
+                            "device '{}' samples refreshed {} times running at ~{} ms, but are declared stale after "
+                            "{} ms; raise hardware.sample_interval_ms (currently {} ms) to match the consumer's poll "
+                            "interval",
+                            device_id, it->sample.consecutive_lagging_gaps, gap_ms, bound_ms,
+                            config.sample_interval_ms);
+                        it->sample.stale_gap_warned = true;
+                    }
+                } else {
+                    it->sample.consecutive_lagging_gaps = 0;
+                }
+            }
             it->sample.signals = std::move(new_signals);
             it->sample.sampled_at = now;
+            it->sample.sampled_at_steady = now_steady;
             it->sample.has_sample = true;
             it->sample.last_read_ok = true;
             it->sample.last_error.clear();
@@ -494,7 +579,18 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             it->sample.last_read_ok = false;
             it->sample.last_error = status.message;
             ++it->sample.failure_count;
+            // Break the streak too. The lag counter is only touched in the
+            // success branch above, and the last_read_ok guard there skips the
+            // whole block — including its reset — on the first success after a
+            // failure. Without this, isolated over-bound gaps separated by
+            // outages would accumulate and eventually latch the warning on
+            // three unrelated transients: the exact failure the streak exists
+            // to prevent, reached through the one path it did not cover.
+            it->sample.consecutive_lagging_gaps = 0;
         }
+    }
+    if (!cadence_warning.empty()) {
+        logging::warning(cadence_warning);
     }
     return status;
 }

@@ -107,6 +107,9 @@ ProviderConfig load_config(const std::string &path) {
     if (const auto value = sdkcfg::as_int64(hardware["query_delay_us"])) {
         config.query_delay_us = static_cast<int>(*value);
     }
+    if (const auto value = sdkcfg::as_int64(hardware["sample_interval_ms"])) {
+        config.sample_interval_ms = static_cast<int>(*value);
+    }
     if (const auto value = sdkcfg::as_int64(hardware["timeout_ms"])) {
         config.timeout_ms = static_cast<int>(*value);
     }
@@ -142,8 +145,10 @@ std::string summarize_config(const ProviderConfig &config) {
     // Startup logs use a compact summary rather than dumping the full device
     // list; the detailed roster already exists in the config file itself.
     out << "provider.name=" << config.provider_name << ", hardware.bus_path=" << config.bus_path
-        << ", hardware.query_delay_us=" << config.query_delay_us << ", hardware.timeout_ms=" << config.timeout_ms
-        << ", hardware.retry_count=" << config.retry_count << ", discovery.mode=manual"
+        << ", hardware.query_delay_us=" << config.query_delay_us
+        << ", hardware.sample_interval_ms=" << config.sample_interval_ms
+        << ", hardware.timeout_ms=" << config.timeout_ms << ", hardware.retry_count=" << config.retry_count
+        << ", discovery.mode=manual"
         << ", devices=" << config.devices.size();
 
     return out.str();

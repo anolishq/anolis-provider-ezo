@@ -38,6 +38,21 @@ struct DeviceSampleCache {
     uint64_t success_count = 0;
     uint64_t failure_count = 0;
     uint64_t sequence = 0;
+    // Monotonic twin of `sampled_at`, used only to measure the gap between two
+    // successful samples. `sampled_at` is a system_clock stamp because it goes
+    // on the wire, and system_clock is not monotonic — a Pi has no RTC, so NTP
+    // steps it forward seconds after boot and a wall-clock gap would be
+    // fabricated (ezo#114).
+    std::chrono::steady_clock::time_point sampled_at_steady{};
+    // Consecutive successful samples whose gap exceeded the freshness bound. A
+    // single over-bound gap is not evidence of a misdeclared cadence: the
+    // runtime polls every provider and device from one serial loop, so an
+    // unrelated device timing out stretches this device's gap without any read
+    // here failing. Only a sustained run means the declared interval is wrong.
+    uint32_t consecutive_lagging_gaps = 0;
+    // Latched so the cadence-mismatch warning is emitted once per device, not
+    // once per sample (ezo#114).
+    bool stale_gap_warned = false;
     std::vector<SignalSample> signals;
 };
 
@@ -122,6 +137,33 @@ i2c::Status submit_i2c_job(const std::string &job_name, std::chrono::millisecond
  * traffic (mock builds).
  */
 i2c::IoStats io_stats_for(uint8_t address);
+
+/**
+ * @brief The latency of one EZO command/reply exchange, in milliseconds.
+ *
+ * Derived from `hardware.query_delay_us`, floored. Bounds a single I2C job and
+ * the window in which a cached sample may be reused instead of re-transacting.
+ * It is emphatically **not** a sampling cadence — see `sample_interval_ms`.
+ */
+int query_latency_ms(const ProviderConfig &config);
+
+/**
+ * @brief The refresh cadence this provider expects, in milliseconds.
+ *
+ * Taken from `hardware.sample_interval_ms`, floored. The provider samples on
+ * demand rather than on a thread of its own, so this is the operator's
+ * statement of the consumer's poll interval — it cannot be observed here.
+ */
+int sample_interval_ms(const ProviderConfig &config);
+
+/**
+ * @brief Freshness bound for a sample, in milliseconds.
+ *
+ * Three refresh intervals, floored. Single source of truth: it is both declared
+ * to the runtime in `SignalSpec.stale_after_ms` and used for this provider's own
+ * STALE decision, so the two cannot disagree (ezo#114).
+ */
+int stale_after_ms(const ProviderConfig &config);
 
 /** @brief Refresh one device's cached sample immediately. */
 i2c::Status refresh_device_sample(const std::string &device_id);

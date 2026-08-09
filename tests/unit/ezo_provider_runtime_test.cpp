@@ -3,8 +3,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "anolis/provider_sdk/result.hpp"
@@ -192,4 +194,241 @@ TEST(EzoProviderRuntimeTest, ProviderHealthEmitsAggregateMetrics) {
     EXPECT_TRUE(h.metrics.contains("i2c_jobs_submitted"));
     // Executor is running in mock mode -> no escalated DEGRADED state.
     EXPECT_FALSE(h.state.has_value());
+}
+
+// --- ezo#114: freshness derives from the refresh cadence, not an I2C latency ---
+
+TEST(EzoStalenessTest, StalenessIsIndependentOfQueryDelay) {
+    // The bug: stale_after_ms was max(query_delay_us/1000, 50) * 3. query_delay_us
+    // is how long one EZO chip takes to answer a command — a transaction latency.
+    // Deriving freshness from it made the bound move when the transport changed
+    // and left it unrelated to how often samples are actually renewed.
+    anolis_provider_ezo::ProviderConfig fast = make_mock_config();
+    anolis_provider_ezo::ProviderConfig slow = make_mock_config();
+    fast.query_delay_us = 300000;  // the shipped bioreactor-v1 value
+    slow.query_delay_us = 900000;
+    ASSERT_EQ(fast.sample_interval_ms, slow.sample_interval_ms);
+
+    EXPECT_EQ(anolis_provider_ezo::runtime::stale_after_ms(fast), anolis_provider_ezo::runtime::stale_after_ms(slow));
+
+    // ...while the latency helper still tracks it, so the split is real and the
+    // transaction budget did not silently become cadence-derived.
+    EXPECT_LT(anolis_provider_ezo::runtime::query_latency_ms(fast),
+              anolis_provider_ezo::runtime::query_latency_ms(slow));
+}
+
+TEST(EzoStalenessTest, StalenessExceedsTheDeclaredRefreshInterval) {
+    // The invariant the bench violated: a sample must not be declared stale
+    // sooner than it can possibly be refreshed. On pi-g1 the bound was 900 ms
+    // against a 2500 ms poll, so both probes sat STALE for ~1.6 s of every
+    // 2.5 s cycle while every single read succeeded — 886 flaps in 8m38s.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 2500;
+
+    EXPECT_GT(anolis_provider_ezo::runtime::stale_after_ms(config), config.sample_interval_ms);
+}
+
+TEST(EzoStalenessTest, StalenessScalesWithTheConfiguredInterval) {
+    anolis_provider_ezo::ProviderConfig slow_poller = make_mock_config();
+    slow_poller.sample_interval_ms = 10000;
+
+    // Still headroom for a missed refresh at any cadence the operator declares.
+    EXPECT_GT(anolis_provider_ezo::runtime::stale_after_ms(slow_poller), slow_poller.sample_interval_ms);
+}
+
+TEST(EzoStalenessTest, DeclaredBoundAndOwnDecisionAgree) {
+    // The derivation used to be duplicated in runtime_state.cpp (what is declared
+    // to the runtime in SignalSpec) and ezo_provider_runtime.cpp (this provider's
+    // own STALE verdict). Two copies of one rule can drift; pin that they cannot.
+    auto rt = make_ready_runtime();
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    ASSERT_FALSE(state.active_devices.empty());
+
+    const auto& capabilities = state.active_devices.front().capabilities;
+    ASSERT_GT(capabilities.signals_size(), 0);
+    const uint32_t declared = capabilities.signals(0).stale_after_ms();
+
+    const auto health = rt.device_health(state.active_devices.front().spec.id);
+    ASSERT_TRUE(health.metrics.contains("sample_stale_after_ms"));
+    EXPECT_EQ(std::to_string(declared), health.metrics.at("sample_stale_after_ms"));
+}
+
+TEST(EzoStalenessTest, PollHintAdvertisesTheRefreshCadence) {
+    // anolis#269 territory: poll_hint_hz came from the same wrong constant, so
+    // the provider advertised 1000/300 = 3.33 Hz — an I2C latency dressed up as
+    // a cadence — while it was really refreshed every 2500 ms.
+    auto rt = make_ready_runtime();
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    ASSERT_FALSE(state.active_devices.empty());
+
+    const auto& capabilities = state.active_devices.front().capabilities;
+    ASSERT_GT(capabilities.signals_size(), 0);
+    const double hint_hz = capabilities.signals(0).poll_hint_hz();
+
+    const double expected_hz =
+        1000.0 / static_cast<double>(anolis_provider_ezo::runtime::sample_interval_ms(make_mock_config()));
+    EXPECT_DOUBLE_EQ(hint_hz, expected_hz);
+
+    // And the hinted period must fit inside the freshness bound it ships with.
+    EXPECT_LT(1000.0 / hint_hz, static_cast<double>(capabilities.signals(0).stale_after_ms()));
+}
+
+// --- ezo#114: the cadence-mismatch warning ---
+
+namespace {
+
+// Latches once per device when two consecutive successful samples are further
+// apart than the derived freshness bound. Observable via the snapshot, which is
+// cheaper and less brittle than capturing stderr.
+uint32_t cadence_streak(const std::string& device_id) {
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    for (const auto& device : state.active_devices) {
+        if (device.spec.id == device_id) {
+            return device.sample.consecutive_lagging_gaps;
+        }
+    }
+    return 0;
+}
+
+bool cadence_warned(const std::string& device_id) {
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    for (const auto& device : state.active_devices) {
+        if (device.spec.id == device_id) {
+            return device.sample.stale_gap_warned;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST(EzoCadenceWarningTest, StaysQuietWhenSamplesKeepUp) {
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 2500;  // bound 7500 ms; the test takes milliseconds
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+
+    EXPECT_FALSE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, FiresOnlyAfterASustainedRun) {
+    // Floored bound is 500 ms. One over-bound gap is not evidence of a wrong
+    // cadence — see IgnoresAnIsolatedLagSpike — so the warning waits for a run.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_FALSE(cadence_warned("ph0")) << "warned after " << i << " lagging gaps";
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    }
+
+    EXPECT_TRUE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, AFailedReadBreaksTheStreak) {
+    // The lag counter is only touched in the success branch, whose last_read_ok
+    // guard skips the whole block — reset included — on the first success after
+    // a failure. So the failure branch must clear the streak itself, or
+    // over-bound gaps separated by outages accumulate and eventually latch the
+    // warning on three unrelated transients: the failure the streak exists to
+    // prevent, reached through the one path it did not cover.
+    //
+    // drop_after=14&drop_for=1 fails exactly the third refresh below (op counts
+    // are global across both devices and the startup probes; verified by
+    // sweeping the window). Asserting the counter directly rather than waiting
+    // for the latch keeps this from depending on the streak length.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;  // bound floors to 500 ms
+    config.bus_path = "mock://streak-outage?drop_after=14&drop_for=1";
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_EQ(cadence_streak("ph0"), 1u);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    ASSERT_EQ(cadence_streak("ph0"), 2u);
+
+    ASSERT_FALSE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok())
+        << "fault injection did not fail the third refresh";
+    EXPECT_EQ(cadence_streak("ph0"), 0u) << "an outage left the lag streak standing";
+
+    EXPECT_FALSE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, IgnoresAnIsolatedLagSpike) {
+    // The runtime polls every provider and device from one serial loop, so an
+    // unrelated device hitting its RPC timeout stretches this device's gap with
+    // no read here failing and last_read_ok still true — neither of the other
+    // two guards applies. The bench has already recorded 4.5 s cycles against a
+    // 2.5 s nominal. A latch burned by that would suppress the real warning for
+    // the life of the process, which is the failure this warning exists to end.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    // Two spikes, each followed by a compliant gap that must re-arm the counter.
+    for (int i = 0; i < 2; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    }
+
+    EXPECT_FALSE(cadence_warned("ph0")) << "a transient stall was blamed on the cadence";
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, IgnoresAGapSpannedByFailedReads) {
+    // The regression: the failure branch deliberately does not move the sample
+    // stamps, so without requiring the PREVIOUS read to have succeeded, the next
+    // success measures a gap covering the whole outage and blames the cadence
+    // for a transport fault. Following that advice would inflate the bound and
+    // blind real staleness detection — the very outcome ezo#114 argues against.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;  // bound floors to 500 ms
+    // Let startup probe/sample succeed, then fail a long run of reads.
+    config.bus_path = "mock://cadence-outage?drop_after=12&drop_for=60";
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+
+    // Burn through the drop window; these fail and must not move the stamps.
+    bool saw_failure = false;
+    for (int i = 0; i < 40; ++i) {
+        if (!anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok()) {
+            saw_failure = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(saw_failure) << "fault injection did not produce a failed read";
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    // Recover: drive until a read succeeds again.
+    bool recovered = false;
+    for (int i = 0; i < 200; ++i) {
+        if (anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok()) {
+            recovered = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(recovered) << "device never recovered from the injected fault";
+
+    EXPECT_FALSE(cadence_warned("ph0")) << "an outage was misreported as a cadence mismatch";
+    anolis_provider_ezo::runtime::reset();
 }

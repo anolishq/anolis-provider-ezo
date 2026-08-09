@@ -4,6 +4,75 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`hardware.sample_interval_ms`** (#114, default **2500**): how often this
+  provider expects its samples to be refreshed. It has no sampling thread of its
+  own — it samples when read — so this is the operator's statement of the
+  consumer's poll interval, and should mirror the runtime's
+  `polling.interval_ms`. Signal freshness bounds and `poll_hint_hz` derive from
+  it. Optional, and the default matches `bioreactor-v1`, whose four runtime
+  profiles all poll at 2500 ms — so the reference machine needs no change.
+
+  It is not a no-op everywhere, though: a config polling *faster* than 2500 ms
+  gets a bound sized for the default rather than its real cadence, which is loose
+  rather than wrong (staleness is reported late, never early). The
+  `mixed-bus-dev` Windows mock profiles poll at 500 ms and should declare
+  `sample_interval_ms: 500` to get a tight bound.
+
+### Fixed
+
+- **Healthy probes reported STALE for most of every poll cycle** (#114).
+  `stale_after_ms` was derived from `query_delay_us` — the delay between an EZO
+  command write and its reply read, i.e. one transaction's latency — as though
+  it were a sampling cadence. With the shipped `query_delay_us: 300000` that
+  declared samples stale after 900 ms while the runtime refreshed them every
+  2500 ms, so each sample was stale for ~1.6 s of every 2.5 s cycle,
+  deterministically and forever. Measured on hardware: 886 `OK`<->`STALE`
+  transitions across two probes in 8m38s, with `io_failed = 0`,
+  `sample_failure_count = 0` and every read succeeding. Bread devices on the
+  same serialized bus flapped zero times in the same window.
+
+  The provider has no sampling thread — it samples on demand, when read — so it
+  cannot observe its own refresh rate. Freshness now derives from a new
+  `hardware.sample_interval_ms` (default **2500**, matching the shipped
+  runtime's `polling.interval_ms`), which is the operator's statement of that
+  cadence; `query_delay_us` keeps its real meaning and still bounds the I2C
+  transaction and the cache-reuse window.
+
+  Because the provider cannot verify the declared cadence, a mismatch is no
+  longer silent: when the gap between two successful samples exceeds the derived
+  bound, the provider warns **once per device** naming both numbers and the
+  field to raise.
+
+- **`poll_hint_hz` advertised an I2C latency as a poll rate** (#114, and the
+  provider half of anolishq/anolis#269). It came from the same conflated
+  constant, so the provider asked for 1000/300 = 3.33 Hz while actually being
+  read at 0.4 Hz. It is now derived from `sample_interval_ms`.
+
+### Changed
+
+- The freshness derivation had been **duplicated** in `core/runtime_state.cpp`
+  (which declares `SignalSpec.stale_after_ms` to the runtime) and
+  `core/ezo_provider_runtime.cpp` (which makes this provider's own STALE
+  verdict). Both copies are collapsed into one exported
+  `runtime::stale_after_ms`, so there is a single definition of the rule. A test
+  asserts the advertised and enforced bounds agree — it guards against the
+  duplication being reintroduced, and passes against the old code too.
+
+- The cadence-mismatch warning measures the gap on a **monotonic** clock and
+  only between two *consecutive successful* reads. A Pi has no RTC, so NTP steps
+  the wall clock forward shortly after boot; and the failure path deliberately
+  leaves the sample stamps alone, so a gap spanning a run of failed reads would
+  otherwise blame the cadence for a transport fault. Either would have latched
+  the once-per-device warning on a false positive and permanently suppressed the
+  real one.
+
+- The provider warns at startup if `query_delay_us` implies a cache-reuse window
+  that is not shorter than `sample_interval_ms`. A poll landing inside that
+  window is served from cache rather than a fresh read, halving the effective
+  rate — the same failure as #114 reached from the other side.
+
 ## [0.3.4] - 2026-08-01
 
 ### Added

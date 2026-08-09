@@ -33,10 +33,23 @@ cfg::Schema build_schema() {
                        .placeholder("/dev/i2c-1 or mock://name"));
     hardware.field(cfg::integer_field("query_delay_us")
                        .title("Query delay (µs)")
-                       .description("Delay between an EZO command write and its reply read.")
+                       .description("Delay between an EZO command write and its reply read. A single "
+                                    "transaction's latency — not a sampling cadence (see "
+                                    "sample_interval_ms).")
                        .min_int(1)
                        .max_int(2147483647)
                        .default_int(300000));
+    hardware.field(cfg::integer_field("sample_interval_ms")
+                       .title("Expected sample interval (ms)")
+                       .description("How often this provider expects its samples to be refreshed. It has "
+                                    "no sampling thread of its own — it samples when read — so set this "
+                                    "to the runtime's polling.interval_ms. Signal freshness bounds and "
+                                    "the advertised poll hint derive from it.")
+                       .min_int(1)
+                       // A day. Far above any real poll loop, and low enough
+                       // that the 3x freshness derivation cannot overflow.
+                       .max_int(86400000)
+                       .default_int(2500));
     hardware.field(
         cfg::integer_field("timeout_ms").title("I/O timeout (ms)").min_int(1).max_int(2147483647).default_int(300));
     hardware.field(
