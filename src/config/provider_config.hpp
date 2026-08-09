@@ -30,16 +30,29 @@ struct DeviceSpec {
  * @brief Resolved provider configuration after YAML parsing.
  *
  * The provider is intentionally manual-config only in v1, so `devices`
- * represents the full expected topology on one bus path. `query_delay_us`
- * controls nominal per-device sample cadence, while `timeout_ms` and
- * `retry_count` configure the Linux transport defaults used by the bus and
- * bus executor.
+ * represents the full expected topology on one bus path.
+ *
+ * `query_delay_us` is a **transaction latency** — how long an EZO chip needs
+ * between a command write and its reply read. It bounds a single I2C exchange
+ * and must not be read as a sampling cadence (ezo#114).
+ *
+ * `sample_interval_ms` is the **refresh cadence**: how often this provider
+ * expects its samples to be renewed. The provider has no sampling thread of its
+ * own — it samples on demand, when the runtime reads — so the real cadence is
+ * the consumer's poll interval, which the provider cannot observe. This field
+ * is how the operator states it, and it should mirror the runtime's
+ * `polling.interval_ms`. Freshness bounds and the advertised poll hint derive
+ * from it; a mismatch is warned about once per device at runtime.
+ *
+ * `timeout_ms` and `retry_count` configure the Linux transport defaults used by
+ * the bus and bus executor.
  */
 struct ProviderConfig {
     std::string config_file_path;
     std::string provider_name = "anolis-provider-ezo";
     std::string bus_path;
     int query_delay_us = 300000;
+    int sample_interval_ms = 2500;
     int timeout_ms = 300;
     int retry_count = 2;
     std::vector<DeviceSpec> devices;

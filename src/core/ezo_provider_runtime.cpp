@@ -36,16 +36,11 @@ using adpp::FunctionSpec;
 using adpp::SignalValue;
 using adpp::Status;
 
-constexpr int kMinSamplePeriodMs = 50;
-constexpr int kMinStaleAfterMs = 500;
-
-int sample_period_ms(const runtime::RuntimeState& state) {
-    return std::max(state.config.query_delay_us / 1000, kMinSamplePeriodMs);
-}
-
-int stale_after_ms(const runtime::RuntimeState& state) {
-    return std::max(sample_period_ms(state) * 3, kMinStaleAfterMs);
-}
+// Freshness comes from runtime::stale_after_ms — the same function that
+// declares SignalSpec.stale_after_ms to the runtime. This file used to carry
+// its own copy of the derivation, so the provider's STALE decision and the
+// bound it advertised could drift apart (ezo#114).
+int stale_after_ms(const runtime::RuntimeState& state) { return runtime::stale_after_ms(state.config); }
 
 Status::Code map_i2c_status_code(i2c::StatusCode code) {
     switch (code) {
@@ -508,7 +503,11 @@ sdk::AdapterReadResult EzoProviderRuntime::read(const std::string& device_id,
     if (!needs_refresh) {
         const auto now = std::chrono::system_clock::now();
         const auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - device->sample.sampled_at);
-        if (age_ms.count() > sample_period_ms(state)) {
+        // Reuse window, not a cadence: never go back to the bus more often than
+        // one transaction takes. Sizing this from the refresh interval instead
+        // would let a poll land inside the window and be served a cached sample,
+        // halving the effective rate.
+        if (age_ms.count() > runtime::query_latency_ms(state.config)) {
             needs_refresh = true;
         }
     }

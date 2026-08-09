@@ -4,6 +4,45 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Healthy probes reported STALE for most of every poll cycle** (#114).
+  `stale_after_ms` was derived from `query_delay_us` — the delay between an EZO
+  command write and its reply read, i.e. one transaction's latency — as though
+  it were a sampling cadence. With the shipped `query_delay_us: 300000` that
+  declared samples stale after 900 ms while the runtime refreshed them every
+  2500 ms, so each sample was stale for ~1.6 s of every 2.5 s cycle,
+  deterministically and forever. Measured on hardware: 886 `OK`<->`STALE`
+  transitions across two probes in 8m38s, with `io_failed = 0`,
+  `sample_failure_count = 0` and every read succeeding. Bread devices on the
+  same serialized bus flapped zero times in the same window.
+
+  The provider has no sampling thread — it samples on demand, when read — so it
+  cannot observe its own refresh rate. Freshness now derives from a new
+  `hardware.sample_interval_ms` (default **2500**, matching the shipped
+  runtime's `polling.interval_ms`), which is the operator's statement of that
+  cadence; `query_delay_us` keeps its real meaning and still bounds the I2C
+  transaction and the cache-reuse window.
+
+  Because the provider cannot verify the declared cadence, a mismatch is no
+  longer silent: when the gap between two successful samples exceeds the derived
+  bound, the provider warns **once per device** naming both numbers and the
+  field to raise.
+
+- **`poll_hint_hz` advertised an I2C latency as a poll rate** (#114, and the
+  provider half of anolishq/anolis#269). It came from the same conflated
+  constant, so the provider asked for 1000/300 = 3.33 Hz while actually being
+  read at 0.4 Hz. It is now derived from `sample_interval_ms`.
+
+### Changed
+
+- The freshness derivation had been **duplicated** in `core/runtime_state.cpp`
+  (which declares `SignalSpec.stale_after_ms` to the runtime) and
+  `core/ezo_provider_runtime.cpp` (which makes this provider's own STALE
+  verdict). Both copies are collapsed into one exported
+  `runtime::stale_after_ms`, so the bound advertised and the bound enforced
+  cannot drift apart. A test pins that they agree.
+
 ## [0.3.4] - 2026-08-01
 
 ### Added

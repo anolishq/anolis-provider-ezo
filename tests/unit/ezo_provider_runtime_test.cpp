@@ -193,3 +193,80 @@ TEST(EzoProviderRuntimeTest, ProviderHealthEmitsAggregateMetrics) {
     // Executor is running in mock mode -> no escalated DEGRADED state.
     EXPECT_FALSE(h.state.has_value());
 }
+
+// --- ezo#114: freshness derives from the refresh cadence, not an I2C latency ---
+
+TEST(EzoStalenessTest, StalenessIsIndependentOfQueryDelay) {
+    // The bug: stale_after_ms was max(query_delay_us/1000, 50) * 3. query_delay_us
+    // is how long one EZO chip takes to answer a command — a transaction latency.
+    // Deriving freshness from it made the bound move when the transport changed
+    // and left it unrelated to how often samples are actually renewed.
+    anolis_provider_ezo::ProviderConfig fast = make_mock_config();
+    anolis_provider_ezo::ProviderConfig slow = make_mock_config();
+    fast.query_delay_us = 300000;  // the shipped bioreactor-v1 value
+    slow.query_delay_us = 900000;
+    ASSERT_EQ(fast.sample_interval_ms, slow.sample_interval_ms);
+
+    EXPECT_EQ(anolis_provider_ezo::runtime::stale_after_ms(fast), anolis_provider_ezo::runtime::stale_after_ms(slow));
+
+    // ...while the latency helper still tracks it, so the split is real and the
+    // transaction budget did not silently become cadence-derived.
+    EXPECT_LT(anolis_provider_ezo::runtime::query_latency_ms(fast),
+              anolis_provider_ezo::runtime::query_latency_ms(slow));
+}
+
+TEST(EzoStalenessTest, StalenessExceedsTheDeclaredRefreshInterval) {
+    // The invariant the bench violated: a sample must not be declared stale
+    // sooner than it can possibly be refreshed. On pi-g1 the bound was 900 ms
+    // against a 2500 ms poll, so both probes sat STALE for ~1.6 s of every
+    // 2.5 s cycle while every single read succeeded — 886 flaps in 8m38s.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 2500;
+
+    EXPECT_GT(anolis_provider_ezo::runtime::stale_after_ms(config), config.sample_interval_ms);
+}
+
+TEST(EzoStalenessTest, StalenessScalesWithTheConfiguredInterval) {
+    anolis_provider_ezo::ProviderConfig slow_poller = make_mock_config();
+    slow_poller.sample_interval_ms = 10000;
+
+    // Still headroom for a missed refresh at any cadence the operator declares.
+    EXPECT_GT(anolis_provider_ezo::runtime::stale_after_ms(slow_poller), slow_poller.sample_interval_ms);
+}
+
+TEST(EzoStalenessTest, DeclaredBoundAndOwnDecisionAgree) {
+    // The derivation used to be duplicated in runtime_state.cpp (what is declared
+    // to the runtime in SignalSpec) and ezo_provider_runtime.cpp (this provider's
+    // own STALE verdict). Two copies of one rule can drift; pin that they cannot.
+    auto rt = make_ready_runtime();
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    ASSERT_FALSE(state.active_devices.empty());
+
+    const auto& capabilities = state.active_devices.front().capabilities;
+    ASSERT_GT(capabilities.signals_size(), 0);
+    const uint32_t declared = capabilities.signals(0).stale_after_ms();
+
+    const auto health = rt.device_health(state.active_devices.front().spec.id);
+    ASSERT_TRUE(health.metrics.contains("sample_stale_after_ms"));
+    EXPECT_EQ(std::to_string(declared), health.metrics.at("sample_stale_after_ms"));
+}
+
+TEST(EzoStalenessTest, PollHintAdvertisesTheRefreshCadence) {
+    // anolis#269 territory: poll_hint_hz came from the same wrong constant, so
+    // the provider advertised 1000/300 = 3.33 Hz — an I2C latency dressed up as
+    // a cadence — while it was really refreshed every 2500 ms.
+    auto rt = make_ready_runtime();
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    ASSERT_FALSE(state.active_devices.empty());
+
+    const auto& capabilities = state.active_devices.front().capabilities;
+    ASSERT_GT(capabilities.signals_size(), 0);
+    const double hint_hz = capabilities.signals(0).poll_hint_hz();
+
+    const double expected_hz =
+        1000.0 / static_cast<double>(anolis_provider_ezo::runtime::sample_interval_ms(make_mock_config()));
+    EXPECT_DOUBLE_EQ(hint_hz, expected_hz);
+
+    // And the hinted period must fit inside the freshness bound it ships with.
+    EXPECT_LT(1000.0 / hint_hz, static_cast<double>(capabilities.signals(0).stale_after_ms()));
+}

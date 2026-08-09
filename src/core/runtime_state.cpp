@@ -41,7 +41,8 @@ std::mutex g_mutex;
 RuntimeState g_state;
 std::shared_ptr<i2c::BusExecutor> g_executor;
 
-constexpr int kMinSamplePeriodMs = 50;
+constexpr int kMinQueryLatencyMs = 50;
+constexpr int kMinSampleIntervalMs = 50;
 constexpr int kMinStaleAfterMs = 500;
 
 using ArgSpec = anolis::deviceprovider::v1::ArgSpec;
@@ -60,12 +61,6 @@ using devices::status_from_ezo_result;
 bool has_prefix(const std::string &value, const std::string &prefix) { return value.rfind(prefix, 0) == 0; }
 
 bool is_mock_mode(const ProviderConfig &config) { return has_prefix(config.bus_path, "mock://"); }
-
-int sample_period_ms(const ProviderConfig &config) {
-    return std::max(config.query_delay_us / 1000, kMinSamplePeriodMs);
-}
-
-int stale_after_ms(const ProviderConfig &config) { return std::max(sample_period_ms(config) * 3, kMinStaleAfterMs); }
 
 ezo_product_id_t expected_product_for_type(EzoDeviceType type) { return devices::adapter_for(type).expected_product; }
 
@@ -178,7 +173,7 @@ anolis::deviceprovider::v1::CapabilitySet build_capabilities(const ProviderConfi
         signal->set_description(defs[i].description);
         signal->set_value_type(anolis::deviceprovider::v1::VALUE_TYPE_DOUBLE);
         signal->set_unit(defs[i].unit);
-        signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_period_ms(config)));
+        signal->set_poll_hint_hz(1000.0 / static_cast<double>(sample_interval_ms(config)));
         signal->set_stale_after_ms(static_cast<uint32_t>(stale_after_ms(config)));
     }
     add_safe_function_specs(capabilities);
@@ -276,6 +271,23 @@ std::string build_startup_message(const RuntimeState &state) {
 }
 
 }  // namespace
+
+int query_latency_ms(const ProviderConfig &config) {
+    return std::max(config.query_delay_us / 1000, kMinQueryLatencyMs);
+}
+
+int sample_interval_ms(const ProviderConfig &config) {
+    return std::max(config.sample_interval_ms, kMinSampleIntervalMs);
+}
+
+int stale_after_ms(const ProviderConfig &config) {
+    // Three refresh intervals: two may be missed before a sample is called
+    // stale. Derived from the declared cadence, never from query_delay_us —
+    // that is a transaction latency, and using it here declared samples stale
+    // after 900 ms while they were only refreshed every 2500 ms, so healthy
+    // probes flapped OK<->STALE roughly once a second forever (ezo#114).
+    return std::max(sample_interval_ms(config) * 3, kMinStaleAfterMs);
+}
 
 void shutdown() {
     std::shared_ptr<i2c::BusExecutor> executor;
@@ -460,7 +472,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     }
 
     std::vector<SignalSample> new_signals;
-    const int timeout_ms = std::max(config.timeout_ms, sample_period_ms(config) + 1500);
+    const int timeout_ms = std::max(config.timeout_ms, query_latency_ms(config) + 1500);
     // Sampling is funneled through the shared executor so reads, identity
     // queries, and safe control calls all share one bus-serialization point.
     i2c::Status status =
@@ -483,6 +495,23 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         }
 
         if (status.is_ok()) {
+            // The provider cannot see its consumer's poll rate, so the only
+            // evidence that hardware.sample_interval_ms is wrong is the gap
+            // between two successful samples exceeding the bound derived from
+            // it. Say so once per device rather than flapping OK<->STALE in
+            // silence, which is how ezo#114 survived unnoticed.
+            if (it->sample.has_sample && !it->sample.stale_gap_warned) {
+                const auto gap_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - it->sample.sampled_at).count();
+                const int bound_ms = stale_after_ms(config);
+                if (gap_ms > bound_ms) {
+                    it->sample.stale_gap_warned = true;
+                    logging::warning(std::format(
+                        "device '{}' samples refresh every ~{} ms but are declared stale after {} ms; "
+                        "raise hardware.sample_interval_ms (currently {} ms) to match the consumer's poll interval",
+                        device_id, gap_ms, bound_ms, sample_interval_ms(config)));
+                }
+            }
             it->sample.signals = std::move(new_signals);
             it->sample.sampled_at = now;
             it->sample.has_sample = true;
