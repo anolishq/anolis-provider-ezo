@@ -44,6 +44,12 @@ struct DeviceSampleCache {
     // steps it forward seconds after boot and a wall-clock gap would be
     // fabricated (ezo#114).
     std::chrono::steady_clock::time_point sampled_at_steady{};
+    // Consecutive successful samples whose gap exceeded the freshness bound. A
+    // single over-bound gap is not evidence of a misdeclared cadence: the
+    // runtime polls every provider and device from one serial loop, so an
+    // unrelated device timing out stretches this device's gap without any read
+    // here failing. Only a sustained run means the declared interval is wrong.
+    uint32_t consecutive_lagging_gaps = 0;
     // Latched so the cadence-mismatch warning is emitted once per device, not
     // once per sample (ezo#114).
     bool stale_gap_warned = false;

@@ -305,19 +305,46 @@ TEST(EzoCadenceWarningTest, StaysQuietWhenSamplesKeepUp) {
     anolis_provider_ezo::runtime::reset();
 }
 
-TEST(EzoCadenceWarningTest, FiresWhenSamplesLagTheDeclaredInterval) {
-    // Floored bound is 500 ms; refresh either side of a longer sleep.
+TEST(EzoCadenceWarningTest, FiresOnlyAfterASustainedRun) {
+    // Floored bound is 500 ms. One over-bound gap is not evidence of a wrong
+    // cadence — see IgnoresAnIsolatedLagSpike — so the warning waits for a run.
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.sample_interval_ms = 1;
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(config);
 
     ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
-    ASSERT_FALSE(cadence_warned("ph0"));
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
-    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_FALSE(cadence_warned("ph0")) << "warned after " << i << " lagging gaps";
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    }
 
     EXPECT_TRUE(cadence_warned("ph0"));
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCadenceWarningTest, IgnoresAnIsolatedLagSpike) {
+    // The runtime polls every provider and device from one serial loop, so an
+    // unrelated device hitting its RPC timeout stretches this device's gap with
+    // no read here failing and last_read_ok still true — neither of the other
+    // two guards applies. The bench has already recorded 4.5 s cycles against a
+    // 2.5 s nominal. A latch burned by that would suppress the real warning for
+    // the life of the process, which is the failure this warning exists to end.
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.sample_interval_ms = 1;
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+
+    ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    // Two spikes, each followed by a compliant gap that must re-arm the counter.
+    for (int i = 0; i < 2; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+    }
+
+    EXPECT_FALSE(cadence_warned("ph0")) << "a transient stall was blamed on the cadence";
     anolis_provider_ezo::runtime::reset();
 }
 

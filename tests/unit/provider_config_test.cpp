@@ -128,11 +128,12 @@ discovery:
         }
         if (member.key == "hardware") {
             // Every hardware field must be accounted for here. Enumerating by
-            // name silently exempts any field added later — and a schema default
-            // that disagrees with the binary is exactly how ezo#114 reached an
-            // operator, since the workbench renders its form from
-            // --config-schema. Track what we assert and require it to be the
-            // whole set.
+            // name silently exempts any field added later, and a schema default
+            // that disagrees with the binary is a lie told to every consumer of
+            // --config-schema. (Note the workbench renders from a *vendored*
+            // snapshot of that envelope, so this test guards the envelope's
+            // honesty, not the workbench form — that needs a re-sync.) Track
+            // what we assert and require it to be the whole set.
             std::set<std::string> asserted;
             std::set<std::string> declared;
             for (const auto &field : member.object->spec().members) {
@@ -226,6 +227,13 @@ discovery:
     };
 
     expect_config_error(with("0"), "sample_interval_ms");
+    // The cap exists so the 3x freshness derivation cannot overflow; pin both
+    // sides of it, not just the far end.
+    {
+        const TempConfigFile ok(with("86400000"));
+        EXPECT_EQ(load_config(ok.path().string()).sample_interval_ms, 86400000);
+    }
+    expect_config_error(with("86400001"), "sample_interval_ms");
     // Capped well below INT_MAX/3 so the 3x freshness derivation cannot
     // overflow into a bound shorter than the cadence.
     expect_config_error(with("2147483647"), "sample_interval_ms");

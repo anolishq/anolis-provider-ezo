@@ -46,6 +46,10 @@ std::shared_ptr<i2c::BusExecutor> g_executor;
 constexpr int kMinQueryLatencyMs = 50;
 constexpr int kMinSampleIntervalMs = 50;
 constexpr int kMinStaleAfterMs = 500;
+// Consecutive over-bound gaps before the cadence warning fires. Three is long
+// enough that a foreign device's RPC timeout cannot burn the latch, short
+// enough that a genuinely misdeclared interval is named within seconds.
+constexpr uint32_t kCadenceLagStreak = 3;
 
 using ArgSpec = anolis::deviceprovider::v1::ArgSpec;
 using FunctionSpec = anolis::deviceprovider::v1::FunctionSpec;
@@ -326,9 +330,9 @@ void initialize(const ProviderConfig &config) {
     // reached from the other side, so say so rather than letting it be silent.
     if (query_latency_ms(config) >= sample_interval_ms(config)) {
         logging::warning(std::format(
-            "hardware.query_delay_us implies a {} ms cache-reuse window, which is not shorter than the {} ms "
-            "hardware.sample_interval_ms; samples may be served from cache and reported stale",
-            query_latency_ms(config), sample_interval_ms(config)));
+            "hardware.query_delay_us ({} us) implies a {} ms cache-reuse window, which is not shorter than the "
+            "{} ms hardware.sample_interval_ms; samples may be served from cache and reported stale",
+            config.query_delay_us, query_latency_ms(config), config.sample_interval_ms));
     }
 
     RuntimeState state;
@@ -534,17 +538,33 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             // would otherwise measure a gap spanning the whole outage and
             // blame the cadence for a transport problem — advice that, followed,
             // would inflate the bound and blind real staleness detection.
+            //
+            // One over-bound gap proves nothing, either. The runtime polls every
+            // provider and every device from a single serial loop, so one
+            // unrelated device hitting its RPC timeout stretches this device's
+            // gap with no read here failing and last_read_ok still true. The
+            // bench has already recorded 4.5 s cycles against a 2.5 s nominal.
+            // Warn only on a sustained run, and re-arm on any compliant gap —
+            // a latch burned by a transient would suppress the real warning for
+            // the life of the process, which is the failure this exists to end.
             if (it->sample.has_sample && it->sample.last_read_ok && !it->sample.stale_gap_warned) {
                 const auto gap_ms =
                     std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - it->sample.sampled_at_steady)
                         .count();
                 const int bound_ms = stale_after_ms(config);
                 if (gap_ms > bound_ms) {
-                    it->sample.stale_gap_warned = true;
-                    cadence_warning = std::format(
-                        "device '{}' samples refresh every ~{} ms but are declared stale after {} ms; "
-                        "raise hardware.sample_interval_ms (currently {} ms) to match the consumer's poll interval",
-                        device_id, gap_ms, bound_ms, sample_interval_ms(config));
+                    ++it->sample.consecutive_lagging_gaps;
+                    if (it->sample.consecutive_lagging_gaps >= kCadenceLagStreak) {
+                        cadence_warning = std::format(
+                            "device '{}' samples refreshed {} times running at ~{} ms, but are declared stale after "
+                            "{} ms; raise hardware.sample_interval_ms (currently {} ms) to match the consumer's poll "
+                            "interval",
+                            device_id, it->sample.consecutive_lagging_gaps, gap_ms, bound_ms,
+                            config.sample_interval_ms);
+                        it->sample.stale_gap_warned = true;
+                    }
+                } else {
+                    it->sample.consecutive_lagging_gaps = 0;
                 }
             }
             it->sample.signals = std::move(new_signals);

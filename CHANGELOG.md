@@ -11,8 +11,14 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
   own — it samples when read — so this is the operator's statement of the
   consumer's poll interval, and should mirror the runtime's
   `polling.interval_ms`. Signal freshness bounds and `poll_hint_hz` derive from
-  it. Optional; the default matches the shipped runtime, so existing configs need
-  no change.
+  it. Optional, and the default matches `bioreactor-v1`, whose four runtime
+  profiles all poll at 2500 ms — so the reference machine needs no change.
+
+  It is not a no-op everywhere, though: a config polling *faster* than 2500 ms
+  gets a bound sized for the default rather than its real cadence, which is loose
+  rather than wrong (staleness is reported late, never early). The
+  `mixed-bus-dev` Windows mock profiles poll at 500 ms and should declare
+  `sample_interval_ms: 500` to get a tight bound.
 
 ### Fixed
 
