@@ -4,6 +4,8 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-08-20
+
 ### Added
 
 - **`hardware.sample_interval_ms`** (#114, default **2500**): how often this
