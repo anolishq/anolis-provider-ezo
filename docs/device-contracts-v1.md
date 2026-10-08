@@ -20,7 +20,7 @@ This document locks the v1 contract surface.
 ## Function IDs (per-type, contiguous from 1)
 
 Every EZO family exposes the same three control functions, numbered `{1..3}` per
-the Anolis executable profile (§4):
+the Anolis executable profile (§5):
 
 1. `1` -> `find`
 2. `2` -> `set_led`
@@ -46,4 +46,4 @@ the Anolis executable profile (§4):
 ## Notes
 
 1. HUM/EC/DO field-level mappings are fixed for v1; unavailable outputs are represented with non-OK quality and metadata, not by removing signals.
-2. Signal IDs are flat lower_snake_case (`^[a-z][a-z0-9_]*$`), per the Anolis executable profile §4.
+2. Signal IDs are flat lower_snake_case (`^[a-z][a-z0-9_]*$`), per the Anolis executable profile §5.
