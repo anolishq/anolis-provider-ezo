@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "anolis/provider_sdk/host_check.hpp"
 #include "anolis/provider_sdk/quality.hpp"
 #include "anolis/provider_sdk/result.hpp"
 #include "config/provider_config.hpp"
@@ -300,6 +301,11 @@ sdk::ReadinessReport EzoProviderRuntime::readiness() const {
     diag["i2c_jobs_submitted"] = std::to_string(state.i2c_metrics.submitted);
     diag["i2c_jobs_timed_out"] = std::to_string(state.i2c_metrics.timed_out);
     diag["i2c_status"] = state.i2c_status_message;
+    // Standard host-check keys (executable profile v1 §3): host_check, and
+    // host_unmet when something is unmet.
+    for (auto& [key, value] : sdk::host_check::readiness_diagnostics(state.host_requirements)) {
+        diag[key] = std::move(value);
+    }
     return r;
 }
 
@@ -437,7 +443,10 @@ sdk::ProviderHealthExtra EzoProviderRuntime::provider_health() const {
     // the startup readiness report cannot express (it may show zero failures).
     if (!state.i2c_executor_running) {
         extra.state = adpp::ProviderHealth::STATE_DEGRADED;
-        extra.message = "i2c executor is not running";
+        // Name the cause when startup never ran the executor because the host
+        // cannot serve the bus.
+        extra.message = sdk::host_check::exit_code(state.host_requirements) != 0 ? state.startup_message
+                                                                                 : "i2c executor is not running";
     }
     return extra;
 }

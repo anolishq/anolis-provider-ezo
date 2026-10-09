@@ -4,6 +4,37 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `--check-host <config>` (executable profile v1 §6, anolishq/anolis#318):
+  prints what the config needs from the host as a JSON envelope and exits 0
+  (nothing unmet), 1 (something unmet) or 2 (invalid config). A `mock://` bus
+  needs nothing; a real bus is checked for `i2c.bus_present` and
+  `i2c.bus_access` (as the user running the check; `unknown` under root), using
+  anolis-provider-sdk 0.3.0's checks. (#119)
+
+### Changed
+
+- **Startup checks the host before starting the I2C executor.** With a
+  requirement unmet the executor is not started, every configured device is
+  excluded with the reason, readiness carries the standard `host_check` /
+  `host_unmet` keys, and provider health is `DEGRADED` with the reason instead
+  of "i2c executor is not running". The startup log says
+  `serving, not ready (...)` whenever no device is active.
+- **Ownership is published as an opaque claim.** Each device carries
+  `anolis.claim` = `i2c:<bus_path>:0x<aa>` (the SDK's canonical key) in place
+  of the `hw.bus_path` / `hw.i2c_address` tags and the plain `bus_path` /
+  `i2c_address` aliases. Requires an anolis runtime that checks claims; an
+  older runtime skips these devices' ownership check.
+  `docs/runtime-ownership-validation-inputs.md` describes the claim; ADR-0001
+  carries a dated amendment.
+- anolis-provider-sdk 0.2.0 -> 0.3.0. The SDK no longer sets the kernel's
+  adapter-wide `I2C_TIMEOUT` / `I2C_RETRIES`, which ezo's `timeout_ms` used to
+  set for every process on the bus. `hardware.timeout_ms` keeps its other use,
+  the deadline for each queued bus job, and its schema title says so.
+- CI conformance harness: anolis-protocol 1.6.0 -> 1.8.0, which adds the
+  `--check-host` envelope check.
+
 ## [0.3.5] - 2026-09-09
 
 ### Added

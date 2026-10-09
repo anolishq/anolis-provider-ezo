@@ -50,8 +50,13 @@ cfg::Schema build_schema() {
                        // that the 3x freshness derivation cannot overflow.
                        .max_int(86400000)
                        .default_int(2500));
-    hardware.field(
-        cfg::integer_field("timeout_ms").title("I/O timeout (ms)").min_int(1).max_int(2147483647).default_int(300));
+    hardware.field(cfg::integer_field("timeout_ms")
+                       .title("Bus job timeout (ms)")
+                       .description("How long a queued bus job may take: a call, a sample read (at least the "
+                                    "command's latency plus 1.5 s) or a startup probe (at least 2 s).")
+                       .min_int(1)
+                       .max_int(2147483647)
+                       .default_int(300));
     hardware.field(
         cfg::integer_field("retry_count").title("I/O retries").min_int(0).max_int(2147483647).default_int(2));
 

@@ -41,3 +41,11 @@ The design needs to stay simple, avoid hidden coupling between providers, and re
 2. Auto discovery.
 3. High-risk control/calibration command surface.
 4. Runtime-global lock manager or broker process.
+
+## Amendment (2026-10-09)
+
+Decision 6's runtime check now runs over opaque claims (anolishq/anolis#318).
+Providers publish an `anolis.claim` tag built with the provider SDK's
+`i2c::claim_key`, and the runtime rejects duplicate keys without parsing them,
+so it no longer knows about I2C. The rest of this ADR stands. See
+[runtime-ownership-validation-inputs.md](runtime-ownership-validation-inputs.md).
