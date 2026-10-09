@@ -20,8 +20,11 @@
 #include <sstream>
 #include <utility>
 
+#include "anolis/provider_sdk/claims.hpp"
+#include "anolis/provider_sdk/i2c/claims.hpp"
 #include "anolis/provider_sdk/i2c/fault_injecting_i2c_bus.hpp"
 #include "anolis/provider_sdk/i2c/linux_i2c_bus.hpp"
+#include "core/host_check.hpp"
 #include "devices/common/device_adapter.hpp"
 #include "devices/common/sample_helpers.hpp"
 #include "i2c/ezo_canned_bus.hpp"
@@ -153,8 +156,7 @@ std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
     }
 
 #if defined(__linux__)
-    return std::make_unique<anolis::provider_sdk::i2c::LinuxI2cBus>(config.bus_path, config.timeout_ms,
-                                                                    config.retry_count);
+    return std::make_unique<anolis::provider_sdk::i2c::LinuxI2cBus>(config.bus_path, config.retry_count);
 #else
     // Non-Linux hardware mode has no i2c-dev: a no-op bus that fails reads (no
     // faked data), matching the former NoopSession fallback.
@@ -209,10 +211,11 @@ anolis::deviceprovider::v1::Device build_descriptor(const ProviderConfig &config
     descriptor.set_type_version("1");
     descriptor.set_label(spec.label.empty() ? spec.id : spec.label);
     descriptor.set_address(formatted_address);
-    (*descriptor.mutable_tags())["hw.bus_path"] = config.bus_path;
-    (*descriptor.mutable_tags())["hw.i2c_address"] = formatted_address;
-    (*descriptor.mutable_tags())["bus_path"] = config.bus_path;
-    (*descriptor.mutable_tags())["i2c_address"] = formatted_address;
+    // The bus address this device owns, as an opaque claim the runtime checks
+    // for uniqueness across providers (anolis#318); the SDK spells the key so
+    // every provider on the bus agrees.
+    anolis::provider_sdk::add_claim(
+        descriptor, anolis::provider_sdk::i2c::claim_key(config.bus_path, static_cast<unsigned int>(spec.address)));
     (*descriptor.mutable_tags())["configured_type"] = to_string(spec.type);
     return descriptor;
 }
@@ -339,6 +342,21 @@ void initialize(const ProviderConfig &config) {
     state.config = config;
     state.started_at = std::chrono::system_clock::now();
     state.ready = false;
+
+    // Check what the bus needs from the host before touching it (executable
+    // profile v1 §6). An unmet requirement leaves the provider up and not ready,
+    // with every configured device excluded for that reason.
+    state.host_requirements = check_host(config);
+    if (anolis::provider_sdk::host_check::exit_code(state.host_requirements) != 0) {
+        state.startup_message = "host requirements unmet: " + summarize_unmet(state.host_requirements);
+        state.i2c_status_message = state.startup_message;
+        for (const DeviceSpec &spec : config.devices) {
+            state.excluded_devices.push_back(ExcludedDevice{spec, state.startup_message});
+        }
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_state = std::move(state);
+        return;
+    }
 
     auto executor = std::make_shared<i2c::BusExecutor>(make_bus(config));
     const i2c::Status start_status = executor->start();

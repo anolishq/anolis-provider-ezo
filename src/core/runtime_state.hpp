@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "anolis/provider_sdk/host_check.hpp"
 #include "config/provider_config.hpp"
 #include "devices/common/signal_sample.hpp"
 #include "i2c/bus_executor.hpp"
@@ -103,6 +104,9 @@ struct RuntimeState {
     bool i2c_executor_running = false;
     i2c::BusExecutorMetrics i2c_metrics;
     std::string i2c_status_message = "not initialized";
+    // Host requirements checked at startup (executable profile v1 §6); empty in
+    // mock mode. With one unmet the executor is not started.
+    std::vector<anolis::provider_sdk::host_check::Requirement> host_requirements;
 };
 
 // [executable-profile §5] Per-type function_ids, contiguous {1..N}. These three

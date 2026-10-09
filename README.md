@@ -31,6 +31,14 @@ Validate a config file without connecting hardware:
 ./bin/anolis-provider-ezo --check-config config/example.local.yaml
 ```
 
+Check what the config needs from the host (the bus node present and openable),
+as the user the runtime runs as; it prints JSON and exits 1 if something is
+unmet:
+
+```bash
+sudo -u anolis ./bin/anolis-provider-ezo --check-host config/example.local.yaml
+```
+
 Provider-ezo is started by the Anolis runtime as a subprocess — it is not run directly.
 Point your [`anolis`](https://github.com/anolishq/anolis/releases/latest) runtime config at it:
 

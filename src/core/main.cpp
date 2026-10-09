@@ -3,10 +3,12 @@
 #include <string>
 
 #include "anolis/provider_sdk/config.hpp"
+#include "anolis/provider_sdk/host_check.hpp"
 #include "anolis/provider_sdk/runtime.hpp"
 #include "config/config_schema.hpp"
 #include "config/provider_config.hpp"
 #include "core/ezo_provider_runtime.hpp"
+#include "core/host_check.hpp"
 #include "core/runtime_state.hpp"
 #include "logging/logger.hpp"
 
@@ -29,6 +31,7 @@ void print_usage(const char *program_name) {
               << "  " << program_name << " --version\n"
               << "  " << program_name << " --config-schema\n"
               << "  " << program_name << " --check-config <path>\n"
+              << "  " << program_name << " --check-host <path>\n"
               << "  " << program_name << " --config <path>\n\n"
               << "Implements ADPP v1 provider for EZO devices.\n";
 }
@@ -40,6 +43,7 @@ int main(int argc, char **argv) {
 
     std::string config_path;
     bool check_config_only = false;
+    bool check_host_only = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -63,6 +67,11 @@ int main(int argc, char **argv) {
             check_config_only = true;
             continue;
         }
+        if (arg == "--check-host" && i + 1 < argc) {
+            config_path = argv[++i];
+            check_host_only = true;
+            continue;
+        }
         if (arg == "--config" && i + 1 < argc) {
             config_path = argv[++i];
             continue;
@@ -74,6 +83,20 @@ int main(int argc, char **argv) {
     if (config_path.empty()) {
         print_usage(argv[0]);
         return 1;
+    }
+
+    if (check_host_only) {
+        // Executable profile v1 §6: the envelope is the only stdout output; exit
+        // 0 nothing unmet, 1 something unmet, 2 could not evaluate (bad config).
+        anolis_provider_ezo::ProviderConfig config;
+        try {
+            config = anolis_provider_ezo::load_config(config_path);
+        } catch (const std::exception &e) {
+            anolis_provider_ezo::logging::error(e.what());
+            return 2;
+        }
+        return anolis::provider_sdk::host_check::write_envelope(std::cout, "anolis-provider-ezo",
+                                                                anolis_provider_ezo::check_host(config));
     }
 
     try {
@@ -99,7 +122,10 @@ int main(int argc, char **argv) {
     }
 
     set_binary_mode_stdio();
-    anolis_provider_ezo::logging::info("ready (transport=stdio+uint32_le)");
+    // Not ready (unmet host requirements or no executor) still serves ADPP, so
+    // the runtime can see why; say which it is.
+    anolis_provider_ezo::logging::info(startup_state.ready ? "ready (transport=stdio+uint32_le)"
+                                                           : "serving, not ready (transport=stdio+uint32_le)");
 
     // The SDK run-loop owns the transport, the §3.2 Hello-gate, dispatch, and exit
     // codes; ezo supplies the device/inventory/readiness seam. on_shutdown stops the

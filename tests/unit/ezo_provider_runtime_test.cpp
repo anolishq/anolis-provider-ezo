@@ -9,8 +9,10 @@
 #include <thread>
 #include <vector>
 
+#include "anolis/provider_sdk/host_check.hpp"
 #include "anolis/provider_sdk/result.hpp"
 #include "config/provider_config.hpp"
+#include "core/host_check.hpp"
 #include "core/runtime_state.hpp"
 #include "protocol.pb.h"
 
@@ -195,6 +197,60 @@ TEST(EzoProviderRuntimeTest, ProviderHealthEmitsAggregateMetrics) {
     // Executor is running in mock mode -> no escalated DEGRADED state.
     EXPECT_FALSE(h.state.has_value());
 }
+
+TEST(EzoProviderRuntimeTest, DevicesPublishAnOpaqueClaim) {
+    // One claim per device in the SDK's canonical form; the old ownership tags
+    // are gone (anolis#318).
+    const auto rt = make_ready_runtime();
+    const auto tags = rt.device_info("ph0").tags();
+    EXPECT_EQ(tags.at("anolis.claim"), "i2c:mock://unit-test-i2c:0x63");
+    EXPECT_EQ(tags.count("hw.bus_path"), 0U);
+    EXPECT_EQ(tags.count("hw.i2c_address"), 0U);
+    EXPECT_EQ(tags.count("bus_path"), 0U);
+    EXPECT_EQ(tags.count("i2c_address"), 0U);
+}
+
+TEST(EzoProviderRuntimeTest, MockModeHasNoHostRequirements) {
+    const auto rt = make_ready_runtime();
+    EXPECT_TRUE(anolis_provider_ezo::check_host(make_mock_config()).empty());
+    const auto diag = rt.readiness().extra_diagnostics;
+    EXPECT_EQ(diag.at("host_check"), "ok");
+    EXPECT_FALSE(diag.contains("host_unmet"));
+}
+
+#if defined(__linux__)
+TEST(EzoProviderRuntimeTest, MissingBusStaysUpNotReady) {
+    // A real (non-mock) bus path that does not exist: the executor is never
+    // started, every configured device is excluded with the reason, and
+    // readiness and provider health say why (executable profile v1 §6).
+    auto config = make_mock_config();
+    config.bus_path = "/nonexistent-anolis-test/i2c-9";
+    ASSERT_EQ(anolis::provider_sdk::host_check::exit_code(anolis_provider_ezo::check_host(config)), 1);
+
+    anolis_provider_ezo::runtime::reset();
+    ASSERT_NO_THROW(anolis_provider_ezo::runtime::initialize(config));
+    const anolis_provider_ezo::EzoProviderRuntime rt;
+
+    EXPECT_TRUE(rt.list_device_ids().empty());
+    const auto r = rt.readiness();
+    EXPECT_FALSE(r.ready);
+    EXPECT_EQ(r.extra_diagnostics.at("host_check"), "unmet");
+    EXPECT_NE(r.extra_diagnostics.at("host_unmet").find("i2c.bus_present"), std::string::npos);
+    EXPECT_EQ(r.extra_diagnostics.at("i2c_executor_running"), "false");
+    ASSERT_EQ(r.failed_devices.size(), 2U);
+    for (const auto& failed : r.failed_devices) {
+        EXPECT_NE(failed.reason.find("host requirements unmet"), std::string::npos) << failed.reason;
+    }
+
+    const auto h = rt.provider_health();
+    ASSERT_TRUE(h.state.has_value());
+    EXPECT_EQ(*h.state, adpp::ProviderHealth::STATE_DEGRADED);
+    ASSERT_TRUE(h.message.has_value());
+    EXPECT_NE(h.message->find("i2c.bus_present"), std::string::npos) << *h.message;
+
+    anolis_provider_ezo::runtime::reset();
+}
+#endif
 
 // --- ezo#114: freshness derives from the refresh cadence, not an I2C latency ---
 
