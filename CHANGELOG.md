@@ -4,6 +4,8 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
 ### Added
 
 - `--check-host <config>` (executable profile v1 §6, anolishq/anolis#318):
@@ -34,6 +36,11 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
   the deadline for each queued bus job, and its schema title says so.
 - CI conformance harness: anolis-protocol 1.6.0 -> 1.8.0, which adds the
   `--check-host` envelope check.
+
+### Fixed
+
+- Docs cited the capability conventions as executable profile §4; since
+  anolis-protocol 1.7.0 they are §5. (#120)
 
 ## [0.3.5] - 2026-09-09
 
