@@ -58,7 +58,6 @@ using ArgSpec = anolis::deviceprovider::v1::ArgSpec;
 using FunctionSpec = anolis::deviceprovider::v1::FunctionSpec;
 constexpr auto kValueTypeBool = anolis::deviceprovider::v1::VALUE_TYPE_BOOL;
 constexpr auto kCategoryConfig = anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_CONFIG;
-constexpr auto kCategoryActuate = anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_ACTUATE;
 
 // Per-family signal tables, read/mock logic, and EZO error/timing helpers now
 // live in the device-adapter modules (src/devices/). Pull the shared helpers
@@ -126,7 +125,7 @@ void add_result_spec(FunctionSpec *function, const char *name, anolis::devicepro
 void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
     FunctionSpec *find_fn = add_function_spec(caps, kFunctionFind, "find",
                                               "Blink the device LED to help identify physical hardware on the bus.",
-                                              kCategoryActuate, false);
+                                              kCategoryConfig, false);
     add_result_spec(find_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
 
     FunctionSpec *set_led_fn = add_function_spec(caps, kFunctionSetLed, "set_led",
