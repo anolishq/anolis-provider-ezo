@@ -168,6 +168,23 @@ TEST(EzoProviderRuntimeTest, ResolveFunctionId) {
     EXPECT_FALSE(rt.resolve_function_id("ph0", "no_such_fn").has_value());
 }
 
+TEST(EzoProviderRuntimeTest, SafeFunctionsAreConfigCategory) {
+    // ezo#118: find only blinks the LED and has no process effect, so it is
+    // CONFIG like set_led and sleep, not ACTUATE.
+    auto rt = make_ready_runtime();
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    ASSERT_FALSE(state.active_devices.empty());
+
+    bool found_find = false;
+    for (const auto& function : state.active_devices.front().capabilities.functions()) {
+        EXPECT_EQ(function.policy().category(), adpp::FunctionPolicy_Category_CATEGORY_CONFIG) << function.name();
+        if (function.function_id() == anolis_provider_ezo::runtime::kFunctionFind) {
+            found_find = true;
+        }
+    }
+    EXPECT_TRUE(found_find);
+}
+
 TEST(EzoProviderRuntimeTest, DeviceHealthReportsStateForLiveDevice) {
     // ezo#87: a live, freshly-sampled device carries an engaged state override.
     // (The FAULT/STALE branches are trivial in device_health() and the SDK tests

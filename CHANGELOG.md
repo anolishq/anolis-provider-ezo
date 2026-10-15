@@ -4,6 +4,12 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `find` is declared `CATEGORY_CONFIG` instead of `CATEGORY_ACTUATE`, like
+  `set_led` and `sleep` (#118). It blinks the LED and has no process effect,
+  and the capabilities no longer declare it as one that actuates.
+
 ## [0.4.0] - 2026-10-09
 
 ### Added
