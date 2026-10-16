@@ -74,8 +74,11 @@ Windows (PowerShell):
 
 ```powershell
 winget install Kitware.CMake; winget install Ninja-build.Ninja; winget install Git.Git
-# Install Visual Studio 2022 with "Desktop development with C++" workload
+# Install Visual Studio 2026 with "Desktop development with C++" workload
 ```
+
+The Windows presets use the `Visual Studio 18 2026` generator, so they need
+Visual Studio 2026 and CMake 4.2 or newer, the release that added that generator.
 
 Install vcpkg and set `VCPKG_ROOT`:
 
