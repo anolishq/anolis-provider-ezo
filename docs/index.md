@@ -17,9 +17,9 @@ Generated HTML goes to `build/docs/doxygen/html/` and should not be committed.
 
 ## Companion validation assets
 
-1. `../anolis/config/mixed-bus-providers/` (canonical mixed-bus runtime and provider configs)
-2. `../anolis/config/mixed-bus-providers/README.md` (single command reference for Windows mock and Linux hardware validation)
-3. `../anolis/config/mixed-bus-providers/check_mixed_bus_http.sh` (Linux hardware HTTP validation helper)
+1. `../anolis-projects/projects/mixed-bus-dev/config/` (canonical mixed-bus runtime and provider configs)
+2. `../anolis-projects/projects/mixed-bus-dev/README.md` (single command reference for Windows mock and Linux hardware validation)
+3. `../anolis-projects/projects/mixed-bus-dev/validation/check_mixed_bus_http.sh` (Linux hardware HTTP validation helper)
 
 ## Working notes
 

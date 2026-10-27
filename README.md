@@ -139,16 +139,15 @@ Windows:
 
 For Linux mixed-bus hardware runs:
 
-1. Build `anolis-provider-bread` with `dev-linux-hardware-release`.
+1. Build `anolis-provider-bread` with `dev-release`.
 2. Build `anolis-provider-ezo` with `dev-linux-hardware-release`.
 3. `../anolis-projects/projects/mixed-bus-dev/config/provider-bread.yaml` sets
-   `hardware.require_live_session: true` so startup fails fast if bread is built
-   without hardware support.
+   a real `bus_path` (`/dev/i2c-1`); if bread cannot open the CRUMBS session on
+   that bus, it stays up and reports not ready with the reason.
 
 ## Docs
 
 1. [docs/index.md](docs/index.md)
-2. Planning notes: `working/` (gitignored)
 
 Local API docs: run `doxygen docs/Doxyfile` from the repo root.
 Generated output goes to `build/docs/doxygen/html/` and remains untracked.
