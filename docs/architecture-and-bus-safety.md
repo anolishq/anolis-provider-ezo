@@ -32,7 +32,10 @@ The design needs to stay simple, avoid hidden coupling between providers, and re
 
 1. Clear ownership and maintainable provider code boundaries.
 2. Reduced race risk inside each provider.
-3. Deterministic startup failure for ambiguous topology.
+3. Startup fails with a sorted error when two published devices claim the same
+   bus address. An excluded device publishes no claim, so a contested address
+   whose identity probe fails starts without error, and the check runs after
+   both providers have already probed the bus.
 4. Lower initial complexity than a global broker model.
 
 ## Non-goals for v1
