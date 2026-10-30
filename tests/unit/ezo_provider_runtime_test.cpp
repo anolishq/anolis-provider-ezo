@@ -510,7 +510,8 @@ TEST(EzoCadenceWarningTest, IgnoresAGapSpannedByFailedReads) {
 // caller has returned (#138). Each test drives one kind of job past its
 // deadline with injected bus latency, then waits for the job to finish. A job
 // that wrote through a reference into the caller's frame would corrupt the
-// stack here; ASan reports it as stack-use-after-return.
+// stack here. ASan reports it as stack-use-after-return and ThreadSanitizer as
+// a data race; an unsanitized build may pass.
 TEST(EzoJobLifetimeTest, AProbePastItsDeadlineExcludesTheDevice) {
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.devices.resize(1);  // ph0
@@ -532,19 +533,17 @@ TEST(EzoJobLifetimeTest, ASamplePastItsDeadlineLeavesTheCacheEmpty) {
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.devices.erase(config.devices.begin());  // do0
     config.query_delay_us = 50000;                 // sample deadline floors to 1550 ms
-    // The probe makes 2 bus ops (0.9 s, inside its 2 s floor); a DO sample
-    // makes 4 (1.8 s, past its deadline).
+    // The probe makes 2 bus ops (0.9 s, inside its 2 s floor); the startup
+    // sample initialize() takes makes 4 (1.8 s, past its deadline).
     config.bus_path = "mock://late-sample?latency_us=450000";
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(config);
-    ASSERT_EQ(anolis_provider_ezo::runtime::snapshot().active_devices.size(), 1u);
-
-    const auto status = anolis_provider_ezo::runtime::refresh_device_sample("do0");
-    EXPECT_EQ(status.code, anolis_provider_ezo::i2c::StatusCode::DeadlineExceeded) << status.message;
     std::this_thread::sleep_for(std::chrono::milliseconds(400));  // let the sample job finish
 
     const auto state = anolis_provider_ezo::runtime::snapshot();
     ASSERT_EQ(state.active_devices.size(), 1u);
-    EXPECT_FALSE(state.active_devices[0].sample.has_sample);
+    const auto &sample = state.active_devices[0].sample;
+    EXPECT_FALSE(sample.has_sample);
+    EXPECT_NE(sample.last_error.find("timed out"), std::string::npos) << sample.last_error;
     anolis_provider_ezo::runtime::reset();
 }
