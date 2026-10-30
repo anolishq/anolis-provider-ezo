@@ -23,7 +23,6 @@ using anolis::provider_sdk::i2c::I2cStatus;
 using anolis::provider_sdk::i2c::IoStats;
 
 constexpr uint8_t kStatusSuccess = 0x01;  // EZO response codes: SUCCESS,
-constexpr uint8_t kStatusFail = 0x02;     // FAIL (syntax error),
 constexpr uint8_t kStatusPending = 0xFE;  // NOT_READY (still processing).
 
 // The address -> family map, mirroring the former mock_product_for_address so
@@ -138,8 +137,12 @@ CannedOptions CannedOptions::parse(const std::string &query) {
         const std::string value = pair.substr(eq + 1);
         if (key == "sleep_delays") {
             options.sleep_delays = value == "1";
-        } else if (key == "reject") {
-            options.reject_command = value;
+        } else if (key == "status") {
+            const size_t colon = value.rfind(':');
+            if (colon != std::string::npos) {
+                options.status_command = value.substr(0, colon);
+                options.status_code = static_cast<uint8_t>(std::strtoul(value.c_str() + colon + 1, nullptr, 10));
+            }
         } else if (key == "pending") {
             const size_t colon = value.rfind(':');
             if (colon != std::string::npos) {
@@ -200,8 +203,8 @@ void EzoCannedBus::record_command(DeviceState &state, const uint8_t *tx_data, si
 
 I2cStatus EzoCannedBus::answer_read(uint8_t address, DeviceState &state, uint8_t *rx_data, size_t rx_len,
                                     size_t *rx_received) {
-    if (!state.last_command.empty() && state.last_command == options_.reject_command) {
-        return emit_frame(kStatusFail, "", rx_data, rx_len, rx_received);
+    if (!state.last_command.empty() && state.last_command == options_.status_command) {
+        return emit_frame(options_.status_code, "", rx_data, rx_len, rx_received);
     }
     if (state.pending_left > 0) {
         --state.pending_left;

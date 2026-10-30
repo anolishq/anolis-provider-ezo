@@ -572,7 +572,7 @@ TEST(EzoControlResponseTest, ACommandLongerThanTheTimeoutReportsItsResult) {
 }
 
 TEST(EzoControlResponseTest, ARejectedCommandFails) {
-    auto rt = make_runtime_on("mock://control-reject?reject=Find");
+    auto rt = make_runtime_on("mock://control-reject?status=Find:2");
     const auto result = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionFind, {});
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.error_code, adpp::Status::CODE_INTERNAL);
@@ -581,24 +581,40 @@ TEST(EzoControlResponseTest, ARejectedCommandFails) {
 }
 
 TEST(EzoControlResponseTest, AStillProcessingResponseIsReadAgain) {
-    auto rt = make_runtime_on("mock://control-pending?pending=Find:2");
+    // Four 254 answers use every re-read: 300 ms for Find plus 4 x 250 ms
+    // apart, which must fit inside the call's deadline.
+    auto rt = make_runtime_on("mock://control-pending?sleep_delays=1&pending=Find:4");
+    const auto started = std::chrono::steady_clock::now();
     const auto result = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionFind, {});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
     EXPECT_TRUE(result.ok) << result.error_message;
+    EXPECT_GE(elapsed, std::chrono::milliseconds(1300));
     anolis_provider_ezo::runtime::reset();
 }
 
 TEST(EzoControlResponseTest, AResponseThatStaysPendingFails) {
-    auto rt = make_runtime_on("mock://control-stuck?pending=Find:100");
+    // One 254 answer more than the re-reads allow.
+    auto rt = make_runtime_on("mock://control-stuck?pending=Find:5");
     const auto result = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionFind, {});
     EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error_code, adpp::Status::CODE_UNAVAILABLE);
     EXPECT_NE(result.error_message.find("still processing"), std::string::npos) << result.error_message;
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoControlResponseTest, NoDataFails) {
+    auto rt = make_runtime_on("mock://control-no-data?status=Find:255");
+    const auto result = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionFind, {});
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error_code, adpp::Status::CODE_UNAVAILABLE);
+    EXPECT_NE(result.error_message.find("no data"), std::string::npos) << result.error_message;
     anolis_provider_ezo::runtime::reset();
 }
 
 TEST(EzoControlResponseTest, SleepIsNotReadBack) {
     // The datasheets say not to read the status byte after Sleep, so a device
     // that would reject it on a read still reports success.
-    auto rt = make_runtime_on("mock://control-sleep?reject=Sleep");
+    auto rt = make_runtime_on("mock://control-sleep?status=Sleep:2");
     const auto result = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionSleep, {});
     EXPECT_TRUE(result.ok) << result.error_message;
     anolis_provider_ezo::runtime::reset();

@@ -224,8 +224,7 @@ i2c::Status read_command_response(ezo_i2c_device_t* device) {
                     continue;
                 }
                 return devices::make_status(i2c::StatusCode::Unavailable,
-                                            "device still processing the command after " +
-                                                std::to_string(kPendingRereads) + " re-reads (response code 254)");
+                                            "device still processing the command (response code 254)");
             case EZO_STATUS_NO_DATA:
                 return devices::make_status(i2c::StatusCode::Unavailable,
                                             "device returned no data for the command (response code 255)");
@@ -246,8 +245,10 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
         return {false, Status::CODE_INTERNAL, "unsupported configured device type for control call"};
     }
 
-    // The deadline is at least the command's own wait plus the headroom, so a
-    // command the device runs is not reported as timed out (#144).
+    // The deadline is at least the command's wait plus the headroom, so a
+    // command the device runs is not reported as timed out (#144). find,
+    // set_led and sleep are all generic commands; a calibration command (#90)
+    // has a longer wait and needs its own kind here.
     ezo_timing_hint_t command_wait{};
     if (ezo_product_resolve_timing_hint(product_id, EZO_PRODUCT_TRANSPORT_I2C, EZO_COMMAND_GENERIC, &command_wait) !=
         EZO_OK) {

@@ -43,7 +43,8 @@ enum class CannedFamily { Unknown, Ph, Orp, Ec, Do, Rtd, Hum };
 /** @brief Device behaviours a test can switch on through the `mock://` query. */
 struct CannedOptions {
     bool sleep_delays = false;    // sleep_delays=1: delay_us really sleeps, as on hardware
-    std::string reject_command;   // reject=<cmd>: answer that command with status 2 (syntax error)
+    std::string status_command;   // status=<cmd>:<code>: answer that command with response code <code>,
+    uint8_t status_code = 0;      //   e.g. 2 (syntax error) or 255 (no data)
     std::string pending_command;  // pending=<cmd>:<n>: answer it with status 254 (still processing)
     uint32_t pending_reads = 0;   //   for the first n reads after each send
 
@@ -86,8 +87,8 @@ private:
     anolis::provider_sdk::i2c::I2cStatus answer_read(uint8_t address, DeviceState &state, uint8_t *rx_data,
                                                      size_t rx_len, size_t *rx_received);
     // Copy `[status][payload]` into rx (truncated to rx_len) and set rx_received.
-    static anolis::provider_sdk::i2c::I2cStatus emit_frame(uint8_t status, const std::string &payload,
-                                                           uint8_t *rx_data, size_t rx_len, size_t *rx_received);
+    static anolis::provider_sdk::i2c::I2cStatus emit_frame(uint8_t status, const std::string &payload, uint8_t *rx_data,
+                                                           size_t rx_len, size_t *rx_received);
 
     std::string bus_path_;
     CannedOptions options_;
