@@ -48,8 +48,12 @@ struct BusExecutorMetrics {
  * on the worker thread.
  *
  * Error handling:
- * Submit timeouts are caller-side deadlines. They do not preempt an in-flight
- * session operation; they only stop the waiting caller from blocking longer.
+ * A submit timeout bounds only the wait for the worker to start the job. A job
+ * still queued at the deadline is abandoned and never runs. A job the worker
+ * has started is never preempted: `submit()` waits for it and returns its
+ * result, however long it takes. Job lifetime therefore never exceeds the
+ * `submit()` call, and a job may safely capture the caller's locals by
+ * reference.
  */
 class BusExecutor {
 public:
@@ -72,9 +76,10 @@ public:
      * @brief Submit one serialized job to the bus worker.
      *
      * @param job_name Short diagnostic name used in metrics and timeout errors
-     * @param timeout Caller-side wait deadline
+     * @param timeout How long the job may wait in the queue before it starts
      * @param job Work item executed on the worker thread
-     * @return Job result or deadline/cancellation status
+     * @return Job result, DeadlineExceeded if the job never started, or a
+     * cancellation status
      */
     Status submit(const std::string &job_name, std::chrono::milliseconds timeout, Job job);
 
@@ -85,11 +90,15 @@ public:
     I2cBus *bus();
 
 private:
+    // Queued -> Running when the worker claims the task, or Queued -> Abandoned
+    // when the caller times out first. Exactly one of the two wins.
+    enum class TaskState { Queued, Running, Abandoned };
+
     struct Task {
         std::string name;
         Job job;
         std::promise<Status> promise;
-        std::atomic<bool> timed_out{false};
+        std::atomic<TaskState> state{TaskState::Queued};
     };
 
     void worker_loop();

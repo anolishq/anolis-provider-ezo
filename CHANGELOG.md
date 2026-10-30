@@ -4,6 +4,19 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A bus job no longer outlives the call that submitted it** (#138). The
+  executor's timeout now covers only the wait for a job to start. A job still
+  queued at the deadline is dropped and the call reports `DEADLINE_EXCEEDED`,
+  as before. A job that has started runs to completion, and the call waits
+  for it and returns its real result. Before, the call returned at its
+  deadline while the job kept running and wrote into the caller's
+  already-returned stack frame, which could crash the provider or corrupt
+  another call's data. A control call on a sensor that takes longer than
+  `hardware.timeout_ms`, such as `find` against the default 300 ms, now
+  reports the result instead of a timeout.
+
 ## [0.4.1] - 2026-10-16
 
 ### Changed
