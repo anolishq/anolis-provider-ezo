@@ -50,6 +50,13 @@ struct BusExecutorMetrics {
  * Error handling:
  * Submit timeouts are caller-side deadlines. They do not preempt an in-flight
  * session operation; they only stop the waiting caller from blocking longer.
+ *
+ * Job lifetime:
+ * A job can outlive the `submit()` call that queued it: after a timeout the
+ * caller returns while the worker is still running the job. A job must
+ * therefore own everything it reads or writes. Capture inputs by value, and
+ * return outputs through a `std::shared_ptr` the caller reads only when
+ * `submit()` succeeds. Never capture the caller's locals by reference.
  */
 class BusExecutor {
 public:

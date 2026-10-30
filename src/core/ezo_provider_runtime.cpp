@@ -203,10 +203,13 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
         return {false, Status::CODE_INTERNAL, "unsupported configured device type for control call"};
     }
 
+    // The job captures by value: it can outlive this call (#138).
+    const auto address = static_cast<uint8_t>(device.spec.address);
     const i2c::Status status = runtime::submit_i2c_job(
-        "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout, [&](i2c::I2cBus& bus) {
+        "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout,
+        [address, function_id, product_id, set_led_enabled](i2c::I2cBus& bus) {
             i2c::EzoDeviceBinding binding;
-            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(device.spec.address), binding);
+            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, address, binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
             }
