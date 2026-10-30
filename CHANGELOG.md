@@ -6,6 +6,18 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ### Fixed
 
+- **Control calls read the device's response code** (#144). After the
+  command's wait, `find` and `set_led` now read the code the device left. A
+  rejected command (code 2) fails with a message saying so instead of
+  reporting success. A device still processing (254) is read again up to 4
+  times, 250 ms apart, before the call fails, and no data (255) fails. `sleep`
+  is not read back, as the datasheets require.
+- **A control call no longer times out on a command the device runs** (#144).
+  Its deadline is now at least the command's own wait plus 1.5 s (1.8 s for
+  `find` and `set_led`), as a sample read's is, instead of `hardware.timeout_ms`
+  alone, which at its default of 300 ms equals `find`'s wait. The
+  `hardware.timeout_ms` description now says it bounds how long a call waits
+  for its bus job, not the job itself.
 - **A bus job that outlasts its deadline no longer writes into memory its
   caller has released** (#138). When a sample, startup probe or control call
   timed out, the call returned while its job kept running on the bus worker,

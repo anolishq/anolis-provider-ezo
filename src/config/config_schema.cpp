@@ -52,8 +52,10 @@ cfg::Schema build_schema() {
                        .default_int(2500));
     hardware.field(cfg::integer_field("timeout_ms")
                        .title("Bus job timeout (ms)")
-                       .description("How long a queued bus job may take: a call, a sample read (at least the "
-                                    "command's latency plus 1.5 s) or a startup probe (at least 2 s).")
+                       .description("How long a call waits for its bus job before reporting a timeout: a control "
+                                    "call (at least the command's wait plus 1.5 s), a sample read (at least the "
+                                    "command's latency plus 1.5 s) or a startup probe (at least 2 s). A job the "
+                                    "bus has already started still runs to the end.")
                        .min_int(1)
                        .max_int(2147483647)
                        .default_int(300));

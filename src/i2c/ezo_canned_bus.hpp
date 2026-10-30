@@ -20,8 +20,10 @@
  * the read values reuse the former `mock_base`/`mock_delta` generators, so mock
  * readings stay in the same plausible, per-address-varying ranges.
  *
- * Control commands (Find / L,1 / Sleep) are send-only in this provider (no
- * status frame is read back), so the bus only has to accept the write.
+ * A control command (Find / L,n) is answered with a bare `[0x01]` status frame.
+ *
+ * `CannedOptions`, parsed from the `mock://` query, switch on device behaviours
+ * the success path never shows, for tests.
  */
 
 #include <cstddef>
@@ -38,9 +40,20 @@ namespace anolis_provider_ezo::i2c {
 /** @brief The EZO families this canned bus can impersonate, by I2C address. */
 enum class CannedFamily { Unknown, Ph, Orp, Ec, Do, Rtd, Hum };
 
+/** @brief Device behaviours a test can switch on through the `mock://` query. */
+struct CannedOptions {
+    bool sleep_delays = false;    // sleep_delays=1: delay_us really sleeps, as on hardware
+    std::string reject_command;   // reject=<cmd>: answer that command with status 2 (syntax error)
+    std::string pending_command;  // pending=<cmd>:<n>: answer it with status 254 (still processing)
+    uint32_t pending_reads = 0;   //   for the first n reads after each send
+
+    /** @brief Parse the options from a `key=value&...` query; unknown keys are ignored. */
+    static CannedOptions parse(const std::string &query);
+};
+
 class EzoCannedBus final : public anolis::provider_sdk::i2c::I2cBus {
 public:
-    explicit EzoCannedBus(std::string bus_path);
+    explicit EzoCannedBus(std::string bus_path, CannedOptions options = {});
 
     anolis::provider_sdk::i2c::I2cStatus open() override;
     void close() override;
@@ -60,17 +73,24 @@ private:
         CannedFamily family = CannedFamily::Unknown;
         std::string last_command;
         uint64_t read_seq = 0;
+        uint32_t pending_left = 0;
     };
 
     DeviceState &state_for(uint8_t address);
     // Build the ASCII payload a real device would return for `command`, or empty
     // if the command expects no readable response (e.g. control sends).
     std::string response_payload(uint8_t address, DeviceState &state, const std::string &command);
-    // Copy `[0x01][payload]` into rx (truncated to rx_len) and set rx_received.
-    static anolis::provider_sdk::i2c::I2cStatus emit_frame(const std::string &payload, uint8_t *rx_data, size_t rx_len,
-                                                           size_t *rx_received);
+    // Record a command write, re-arming any pending replies configured for it.
+    void record_command(DeviceState &state, const uint8_t *tx_data, size_t tx_len);
+    // Answer a read: `[status][payload]` for the last-recorded command.
+    anolis::provider_sdk::i2c::I2cStatus answer_read(uint8_t address, DeviceState &state, uint8_t *rx_data,
+                                                     size_t rx_len, size_t *rx_received);
+    // Copy `[status][payload]` into rx (truncated to rx_len) and set rx_received.
+    static anolis::provider_sdk::i2c::I2cStatus emit_frame(uint8_t status, const std::string &payload,
+                                                           uint8_t *rx_data, size_t rx_len, size_t *rx_received);
 
     std::string bus_path_;
+    CannedOptions options_;
     bool opened_ = false;
     std::map<uint8_t, DeviceState> devices_;
 };

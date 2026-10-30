@@ -6,9 +6,13 @@
 #include "i2c/ezo_canned_bus.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace anolis_provider_ezo::i2c {
@@ -18,7 +22,9 @@ using anolis::provider_sdk::i2c::I2cError;
 using anolis::provider_sdk::i2c::I2cStatus;
 using anolis::provider_sdk::i2c::IoStats;
 
-constexpr uint8_t kStatusSuccess = 0x01;  // EZO response code for SUCCESS.
+constexpr uint8_t kStatusSuccess = 0x01;  // EZO response codes: SUCCESS,
+constexpr uint8_t kStatusFail = 0x02;     // FAIL (syntax error),
+constexpr uint8_t kStatusPending = 0xFE;  // NOT_READY (still processing).
 
 // The address -> family map, mirroring the former mock_product_for_address so
 // mock identity/type-match behaviour is unchanged.
@@ -119,7 +125,34 @@ bool starts_with(const std::string &s, const char *prefix) { return s.rfind(pref
 
 }  // namespace
 
-EzoCannedBus::EzoCannedBus(std::string bus_path) : bus_path_(std::move(bus_path)) {}
+CannedOptions CannedOptions::parse(const std::string &query) {
+    CannedOptions options;
+    std::istringstream pairs(query);
+    std::string pair;
+    while (std::getline(pairs, pair, '&')) {
+        const size_t eq = pair.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+        const std::string key = pair.substr(0, eq);
+        const std::string value = pair.substr(eq + 1);
+        if (key == "sleep_delays") {
+            options.sleep_delays = value == "1";
+        } else if (key == "reject") {
+            options.reject_command = value;
+        } else if (key == "pending") {
+            const size_t colon = value.rfind(':');
+            if (colon != std::string::npos) {
+                options.pending_command = value.substr(0, colon);
+                options.pending_reads = static_cast<uint32_t>(std::strtoul(value.c_str() + colon + 1, nullptr, 10));
+            }
+        }
+    }
+    return options;
+}
+
+EzoCannedBus::EzoCannedBus(std::string bus_path, CannedOptions options)
+    : bus_path_(std::move(bus_path)), options_(std::move(options)) {}
 
 I2cStatus EzoCannedBus::open() {
     opened_ = true;
@@ -129,7 +162,11 @@ I2cStatus EzoCannedBus::open() {
 void EzoCannedBus::close() { opened_ = false; }
 bool EzoCannedBus::is_open() const { return opened_; }
 const std::string &EzoCannedBus::bus_path() const { return bus_path_; }
-void EzoCannedBus::delay_us(uint32_t) {}
+void EzoCannedBus::delay_us(uint32_t delay_us) {
+    if (options_.sleep_delays) {
+        std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+    }
+}
 IoStats EzoCannedBus::io_stats_for(uint8_t) const { return IoStats{}; }
 
 EzoCannedBus::DeviceState &EzoCannedBus::state_for(uint8_t address) {
@@ -152,15 +189,34 @@ std::string EzoCannedBus::response_payload(uint8_t address, DeviceState &state, 
     if (command == "r" || starts_with(command, "rt,")) {
         return read_payload(state.family, address, state.read_seq++);
     }
-    // Control sends (Find / L,1 / Sleep) and anything else are never read back.
+    // Control commands (Find / L,n) answer with a bare status frame.
     return "";
 }
 
-I2cStatus EzoCannedBus::emit_frame(const std::string &payload, uint8_t *rx_data, size_t rx_len, size_t *rx_received) {
+void EzoCannedBus::record_command(DeviceState &state, const uint8_t *tx_data, size_t tx_len) {
+    state.last_command.assign(reinterpret_cast<const char *>(tx_data), tx_len);
+    state.pending_left = state.last_command == options_.pending_command ? options_.pending_reads : 0;
+}
+
+I2cStatus EzoCannedBus::answer_read(uint8_t address, DeviceState &state, uint8_t *rx_data, size_t rx_len,
+                                    size_t *rx_received) {
+    if (!state.last_command.empty() && state.last_command == options_.reject_command) {
+        return emit_frame(kStatusFail, "", rx_data, rx_len, rx_received);
+    }
+    if (state.pending_left > 0) {
+        --state.pending_left;
+        return emit_frame(kStatusPending, "", rx_data, rx_len, rx_received);
+    }
+    return emit_frame(kStatusSuccess, response_payload(address, state, state.last_command), rx_data, rx_len,
+                      rx_received);
+}
+
+I2cStatus EzoCannedBus::emit_frame(uint8_t status, const std::string &payload, uint8_t *rx_data, size_t rx_len,
+                                   size_t *rx_received) {
     if (rx_data == nullptr || rx_len == 0) {
         return I2cStatus::failure(I2cError::InvalidArgument, "canned read requires rx buffer");
     }
-    rx_data[0] = kStatusSuccess;
+    rx_data[0] = status;
     size_t written = 1;
     for (size_t i = 0; i < payload.size() && written < rx_len; ++i, ++written) {
         rx_data[written] = static_cast<uint8_t>(payload[i]);
@@ -178,7 +234,7 @@ I2cStatus EzoCannedBus::write(uint8_t address, const uint8_t *tx_data, size_t tx
     if (tx_len == 0) {
         return I2cStatus::failure(I2cError::InvalidArgument, "write requires tx_len>0");
     }
-    state_for(address).last_command.assign(reinterpret_cast<const char *>(tx_data), tx_len);
+    record_command(state_for(address), tx_data, tx_len);
     return I2cStatus::ok();
 }
 
@@ -186,8 +242,7 @@ I2cStatus EzoCannedBus::read(uint8_t address, uint8_t *rx_data, size_t rx_len, s
     if (!opened_) {
         return I2cStatus::failure(I2cError::NotOpen, "bus not open");
     }
-    DeviceState &state = state_for(address);
-    return emit_frame(response_payload(address, state, state.last_command), rx_data, rx_len, rx_received);
+    return answer_read(address, state_for(address), rx_data, rx_len, rx_received);
 }
 
 I2cStatus EzoCannedBus::write_then_read(uint8_t address, const uint8_t *tx_data, size_t tx_len, uint8_t *rx_data,
@@ -202,7 +257,7 @@ I2cStatus EzoCannedBus::write_then_read(uint8_t address, const uint8_t *tx_data,
     // The EZO driver splits command-write and response-read into separate calls
     // (write: tx>0,rx=0; read: tx=0,rx>0), but handle the atomic form too.
     if (tx_len > 0) {
-        state.last_command.assign(reinterpret_cast<const char *>(tx_data), tx_len);
+        record_command(state, tx_data, tx_len);
     }
     if (rx_len == 0) {
         if (rx_received != nullptr) {
@@ -210,7 +265,7 @@ I2cStatus EzoCannedBus::write_then_read(uint8_t address, const uint8_t *tx_data,
         }
         return I2cStatus::ok();
     }
-    return emit_frame(response_payload(address, state, state.last_command), rx_data, rx_len, rx_received);
+    return answer_read(address, state, rx_data, rx_len, rx_received);
 }
 
 }  // namespace anolis_provider_ezo::i2c
