@@ -9,8 +9,8 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 - **A bus job that outlasts its deadline no longer writes into memory its
   caller has released** (#138). When a sample, startup probe or control call
   timed out, the call returned while its job kept running on the bus worker,
-  and the job went on using the returned call's stack: a sample or probe
-  wrote its result there. That could crash the provider. Each job now
+  and a sample or probe job could then write its result into the returned
+  call's stack. That could crash the provider. Each job now
   owns what it reads and writes, and the call keeps the result only when the
   job finishes in time. Timeouts behave as before.
 
