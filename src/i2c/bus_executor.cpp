@@ -106,19 +106,18 @@ Status BusExecutor::submit(const std::string &job_name, std::chrono::millisecond
 
     cv_.notify_one();
 
-    // The timeout covers only the wait for the worker to start the job. A job
-    // that has started runs to completion and its result is returned, so a
-    // job never outlives the caller frame it may write into.
+    // Timeouts apply to the waiting caller, not to the underlying I2C transfer.
+    // If the worker has already started the task, the caller may receive a
+    // deadline error even though the session operation finishes later, which
+    // is why a job must own its state (see the class comment).
     if (timeout.count() > 0) {
         const std::future_status wait_status = future.wait_for(timeout);
         if (wait_status != std::future_status::ready) {
-            TaskState expected = TaskState::Queued;
-            if (task->state.compare_exchange_strong(expected, TaskState::Abandoned)) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                ++metrics_.timed_out;
-                metrics_.last_error = "job '" + job_name + "' timed out";
-                return make_status(StatusCode::DeadlineExceeded, "job '" + job_name + "' timed out");
-            }
+            task->timed_out.store(true);
+            std::lock_guard<std::mutex> lock(mutex_);
+            ++metrics_.timed_out;
+            metrics_.last_error = "job '" + job_name + "' timed out";
+            return make_status(StatusCode::DeadlineExceeded, "job '" + job_name + "' timed out");
         }
     }
 
@@ -154,10 +153,8 @@ void BusExecutor::worker_loop() {
         }
 
         // If the caller timed out before this task started, skip the job rather
-        // than issuing an unnecessary bus transaction. Otherwise claim it, so
-        // the caller waits for it instead of timing out.
-        TaskState expected = TaskState::Queued;
-        if (!task->state.compare_exchange_strong(expected, TaskState::Running)) {
+        // than issuing an unnecessary bus transaction.
+        if (task->timed_out.load()) {
             safe_set_promise(task->promise,
                              make_status(StatusCode::Cancelled, "task skipped because caller timed out"));
             std::lock_guard<std::mutex> lock(mutex_);
@@ -167,7 +164,7 @@ void BusExecutor::worker_loop() {
 
         Status status = task->job(*bus_);
 
-        {
+        if (!task->timed_out.load()) {
             std::lock_guard<std::mutex> lock(mutex_);
             if (status.is_ok()) {
                 ++metrics_.succeeded;

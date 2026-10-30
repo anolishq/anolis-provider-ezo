@@ -225,14 +225,17 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig
         return make_status(i2c::StatusCode::InvalidArgument, "probe requires output info");
     }
 
-    ezo_device_info_t info{};
+    // The job owns its inputs and output: it can outlive this call (#138).
+    auto info = std::make_shared<ezo_device_info_t>();
     const ezo_product_id_t expected_product = expected_product_for_type(spec.type);
+    const auto address = static_cast<uint8_t>(spec.address);
     const int timeout_ms = std::max(config.timeout_ms, 2000);
 
-    const i2c::Status status =
-        executor.submit("startup_probe:" + spec.id, std::chrono::milliseconds(timeout_ms), [&](i2c::I2cBus &bus) {
+    const i2c::Status status = executor.submit(
+        "startup_probe:" + spec.id, std::chrono::milliseconds(timeout_ms),
+        [info, expected_product, address](i2c::I2cBus &bus) {
             i2c::EzoDeviceBinding binding;
-            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(spec.address), binding);
+            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, address, binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
             }
@@ -246,7 +249,7 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig
             // Settle via the bus so mock (canned) is instant and real hardware sleeps.
             bus.delay_us(hint.wait_ms * 1000U);
 
-            const ezo_result_t read_result = ezo_control_read_info_i2c(&binding.device, &info);
+            const ezo_result_t read_result = ezo_control_read_info_i2c(&binding.device, info.get());
             if (read_result != EZO_OK) {
                 return status_from_ezo_result(read_result, "read info response");
             }
@@ -255,7 +258,7 @@ i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig
         });
 
     if (status.is_ok()) {
-        *info_out = info;
+        *info_out = *info;
     }
     return status;
 }
@@ -513,19 +516,20 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
         spec = it->spec;
     }
 
-    std::vector<SignalSample> new_signals;
+    // The job owns its inputs and output: it can outlive this call (#138).
+    auto new_signals = std::make_shared<std::vector<SignalSample>>();
     const int timeout_ms = std::max(config.timeout_ms, query_latency_ms(config) + 1500);
     // Sampling is funneled through the shared executor so reads, identity
     // queries, and safe control calls all share one bus-serialization point.
-    i2c::Status status =
-        submit_i2c_job("sample:" + device_id, std::chrono::milliseconds(timeout_ms), [&](i2c::I2cBus &bus) {
+    i2c::Status status = submit_i2c_job(
+        "sample:" + device_id, std::chrono::milliseconds(timeout_ms), [new_signals, spec](i2c::I2cBus &bus) {
             i2c::EzoDeviceBinding binding;
             i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(spec.address), binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
             }
 
-            return read_sample_from_bound_device(&binding.device, spec, &new_signals);
+            return read_sample_from_bound_device(&binding.device, spec, new_signals.get());
         });
 
     const auto now = std::chrono::system_clock::now();
@@ -584,7 +588,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
                     it->sample.consecutive_lagging_gaps = 0;
                 }
             }
-            it->sample.signals = std::move(new_signals);
+            it->sample.signals = std::move(*new_signals);
             it->sample.sampled_at = now;
             it->sample.sampled_at_steady = now_steady;
             it->sample.has_sample = true;

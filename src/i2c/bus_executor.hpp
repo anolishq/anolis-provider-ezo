@@ -48,12 +48,15 @@ struct BusExecutorMetrics {
  * on the worker thread.
  *
  * Error handling:
- * A submit timeout bounds only the wait for the worker to start the job. A job
- * still queued at the deadline is abandoned and never runs. A job the worker
- * has started is never preempted: `submit()` waits for it and returns its
- * result, however long it takes. Job lifetime therefore never exceeds the
- * `submit()` call, and a job may safely capture the caller's locals by
- * reference.
+ * Submit timeouts are caller-side deadlines. They do not preempt an in-flight
+ * session operation; they only stop the waiting caller from blocking longer.
+ *
+ * Job lifetime:
+ * A job can outlive the `submit()` call that queued it: after a timeout the
+ * caller returns while the worker is still running the job. A job must
+ * therefore own everything it reads or writes. Capture inputs by value, and
+ * return outputs through a `std::shared_ptr` the caller reads only when
+ * `submit()` succeeds. Never capture the caller's locals by reference.
  */
 class BusExecutor {
 public:
@@ -76,10 +79,9 @@ public:
      * @brief Submit one serialized job to the bus worker.
      *
      * @param job_name Short diagnostic name used in metrics and timeout errors
-     * @param timeout How long the job may wait in the queue before it starts
+     * @param timeout Caller-side wait deadline
      * @param job Work item executed on the worker thread
-     * @return Job result, DeadlineExceeded if the job never started, or a
-     * cancellation status
+     * @return Job result or deadline/cancellation status
      */
     Status submit(const std::string &job_name, std::chrono::milliseconds timeout, Job job);
 
@@ -90,15 +92,11 @@ public:
     I2cBus *bus();
 
 private:
-    // Queued -> Running when the worker claims the task, or Queued -> Abandoned
-    // when the caller times out first. Exactly one of the two wins.
-    enum class TaskState { Queued, Running, Abandoned };
-
     struct Task {
         std::string name;
         Job job;
         std::promise<Status> promise;
-        std::atomic<TaskState> state{TaskState::Queued};
+        std::atomic<bool> timed_out{false};
     };
 
     void worker_loop();
