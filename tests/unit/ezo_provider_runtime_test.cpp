@@ -542,7 +542,7 @@ TEST(EzoJobLifetimeTest, ASamplePastItsDeadlineLeavesTheCacheEmpty) {
 
     const auto state = anolis_provider_ezo::runtime::snapshot();
     ASSERT_EQ(state.active_devices.size(), 1u);
-    const auto &sample = state.active_devices[0].sample;
+    const auto& sample = state.active_devices[0].sample;
     EXPECT_FALSE(sample.has_sample);
     EXPECT_NE(sample.last_error.find("timed out"), std::string::npos) << sample.last_error;
     anolis_provider_ezo::runtime::reset();
