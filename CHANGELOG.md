@@ -12,9 +12,9 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
   `low`, `high`) and `reference_ph` (0 to 14); DO `calibrate` takes `point`
   (`atmospheric`, `zero`). The provider checks the args itself: an unknown
   point or a non-finite value is `INVALID_ARGUMENT`, a `reference_ph` outside
-  0 to 14 is `OUT_OF_RANGE`. A calibration call waits the driver's
-  calibration time (pH 900 ms, DO 1300 ms) and fails if the device rejects
-  the command. The MANUAL-only restriction needs runtime 0.6.0 or later.
+  0 to 14 is `OUT_OF_RANGE`. `calibrate` waits the driver's calibration time
+  (pH 900 ms, DO 1300 ms) and `clear_calibration` a generic command's 300 ms;
+  either fails if the device rejects the command. The MANUAL-only restriction needs runtime 0.6.0 or later.
 
 ### Fixed
 
