@@ -17,6 +17,28 @@ This document locks the v1 contract surface.
 2. `set_led`
 3. `sleep`
 
+## Calibration functions (pH and DO)
+
+`sensor.ezo.ph` and `sensor.ezo.do` also declare calibration. Both functions are
+`CATEGORY_CONFIG`, not idempotent, and declare `allowed_modes: [MANUAL]`, so the
+runtime refuses them in any other mode (runtime 0.6.0 or later enforces this).
+
+| Function            | Family | Args                                                                                           | Device command                         |
+| ------------------- | ------ | ---------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `calibrate`         | pH     | `point` (string: `mid`, `low`, `high`), `reference_ph` (double, 0 to 14, sent with 2 decimals) | `Cal,mid,n`, `Cal,low,n`, `Cal,high,n` |
+| `calibrate`         | DO     | `point` (string: `atmospheric`, `zero`)                                                        | `Cal`, `Cal,0`                         |
+| `clear_calibration` | pH, DO | none                                                                                           | `Cal,clear`                            |
+
+Arguments are checked before any bus work: an unknown point, a wrong type, a
+missing or extra arg, or a non-finite `reference_ph` is `INVALID_ARGUMENT`, and a
+`reference_ph` outside 0 to 14 is `OUT_OF_RANGE`. `calibrate` then waits the
+driver's calibration time (pH 900 ms, DO 1300 ms); `clear_calibration` waits a
+generic command's 300 ms. Both then read the device's response code, as every
+control call but `sleep` does: a rejection (code 2) fails the call.
+
+Calibrating pH at `mid` clears the low and high points, so a full calibration
+is mid, then low, then high. For a two-point DO calibration, do `zero` first.
+
 ## Function IDs (per-type, contiguous from 1)
 
 Every EZO family exposes the same three control functions, numbered `{1..3}` per
@@ -25,6 +47,11 @@ the Anolis executable profile (§5):
 1. `1` -> `find`
 2. `2` -> `set_led`
 3. `3` -> `sleep`
+
+pH and DO continue the numbering with `4` -> `calibrate` and
+`5` -> `clear_calibration`.
+
+Adding functions is additive, so `type_version` stays `1`.
 
 ## Signal table
 

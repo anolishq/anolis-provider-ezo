@@ -4,6 +4,18 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **pH and DO calibration** (#90). `sensor.ezo.ph` and `sensor.ezo.do` declare
+  `calibrate` (function 4) and `clear_calibration` (function 5), both
+  `CATEGORY_CONFIG` and MANUAL-only. pH `calibrate` takes `point` (`mid`,
+  `low`, `high`) and `reference_ph` (0 to 14); DO `calibrate` takes `point`
+  (`atmospheric`, `zero`). The provider checks the args itself: an unknown
+  point or a non-finite value is `INVALID_ARGUMENT`, a `reference_ph` outside
+  0 to 14 is `OUT_OF_RANGE`. `calibrate` waits the driver's calibration time
+  (pH 900 ms, DO 1300 ms) and `clear_calibration` a generic command's 300 ms;
+  either fails if the device rejects the command. The MANUAL-only restriction needs runtime 0.6.0 or later.
+
 ### Fixed
 
 - **Control calls read the device's response code** (#144). After the
