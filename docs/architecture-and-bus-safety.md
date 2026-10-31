@@ -42,7 +42,10 @@ The design needs to stay simple, avoid hidden coupling between providers, and re
 
 1. UART transport support.
 2. Auto discovery.
-3. High-risk control/calibration command surface.
+3. High-risk control commands: factory reset, I2C address change, protocol
+   lock, UART switching and calibration import. pH and DO calibration is in
+   scope since anolishq/anolis-provider-ezo#90; see
+   [device-contracts-v1.md](device-contracts-v1.md).
 4. Runtime-global lock manager or broker process.
 
 ## Amendment (2026-10-09)

@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,7 +23,9 @@
 
 extern "C" {
 #include "ezo_control.h"
+#include "ezo_do.h"
 #include "ezo_i2c.h"
+#include "ezo_ph.h"
 #include "ezo_product.h"
 }
 
@@ -154,44 +158,103 @@ void populate_signal_value(const runtime::RuntimeState& state, const runtime::Ac
     }
 }
 
-bool validate_call_args(uint32_t function_id, const sdk::ValueMap& args, bool* set_led_enabled,
-                        std::string* error_out) {
-    auto set_error = [&](const std::string& message) {
-        if (error_out != nullptr) {
-            *error_out = message;
-        }
-    };
+// The validated arguments of one control call, copied into its bus job (#138).
+struct ControlArgs {
+    bool led_enabled = false;
+    int calibration_point = 0;  // index into calibration_points() for the device type
+    double reference_ph = 0.0;
+};
 
-    if (function_id == runtime::kFunctionFind || function_id == runtime::kFunctionSleep) {
-        if (!args.empty()) {
-            set_error("function does not accept args");
-            return false;
-        }
-        return true;
+// The calibration points calibrate accepts, in the driver's enum order (#90).
+std::vector<std::string> calibration_points(EzoDeviceType type) {
+    if (type == EzoDeviceType::Ph) {
+        return {"mid", "low", "high"};
     }
+    if (type == EzoDeviceType::Do) {
+        return {"atmospheric", "zero"};
+    }
+    return {};
+}
 
-    if (function_id == runtime::kFunctionSetLed) {
-        const auto it = args.find("enabled");
-        if (it == args.end()) {
-            set_error("missing required arg 'enabled'");
-            return false;
+std::optional<sdk::AdapterCallResult> validate_calibrate_args(EzoDeviceType type, const sdk::ValueMap& args,
+                                                              ControlArgs* out) {
+    const std::vector<std::string> points = calibration_points(type);
+    const auto point = args.find("point");
+    if (point == args.end()) {
+        return sdk::call_invalid_argument("missing required arg 'point'");
+    }
+    if (point->second.type() != adpp::VALUE_TYPE_STRING) {
+        return sdk::call_invalid_argument("arg 'point' must be VALUE_TYPE_STRING");
+    }
+    const auto chosen = std::find(points.begin(), points.end(), point->second.string_value());
+    if (chosen == points.end()) {
+        std::string names;
+        for (const auto& name : points) {
+            names += (names.empty() ? "" : ", ") + name;
         }
+        return sdk::call_invalid_argument("arg 'point' must be one of: " + names);
+    }
+    out->calibration_point = static_cast<int>(chosen - points.begin());
+
+    if (type != EzoDeviceType::Ph) {
         if (args.size() != 1) {
-            set_error("set_led accepts only one arg: enabled");
-            return false;
+            return sdk::call_invalid_argument("calibrate accepts only one arg: point");
         }
-        if (it->second.type() != adpp::VALUE_TYPE_BOOL) {
-            set_error("arg 'enabled' must be VALUE_TYPE_BOOL");
-            return false;
-        }
-        if (set_led_enabled != nullptr) {
-            *set_led_enabled = it->second.bool_value();
-        }
-        return true;
+        return std::nullopt;
     }
 
-    set_error("unsupported function_id");
-    return false;
+    const auto reference = args.find("reference_ph");
+    if (reference == args.end()) {
+        return sdk::call_invalid_argument("missing required arg 'reference_ph'");
+    }
+    if (args.size() != 2) {
+        return sdk::call_invalid_argument("calibrate accepts only two args: point, reference_ph");
+    }
+    if (reference->second.type() != adpp::VALUE_TYPE_DOUBLE) {
+        return sdk::call_invalid_argument("arg 'reference_ph' must be VALUE_TYPE_DOUBLE");
+    }
+    const double value = reference->second.double_value();
+    if (!std::isfinite(value)) {
+        return sdk::call_invalid_argument("arg 'reference_ph' must be finite");
+    }
+    if (value < 0.0 || value > 14.0) {
+        return sdk::call_out_of_range("arg 'reference_ph' must be between 0 and 14");
+    }
+    out->reference_ph = value;
+    return std::nullopt;
+}
+
+// Check a call's args before any bus work. Returns the error result, or nullopt
+// with *out filled.
+std::optional<sdk::AdapterCallResult> validate_call_args(uint32_t function_id, EzoDeviceType type,
+                                                         const sdk::ValueMap& args, ControlArgs* out) {
+    switch (function_id) {
+        case runtime::kFunctionFind:
+        case runtime::kFunctionSleep:
+        case runtime::kFunctionClearCalibration:
+            if (!args.empty()) {
+                return sdk::call_invalid_argument("function does not accept args");
+            }
+            return std::nullopt;
+        case runtime::kFunctionSetLed: {
+            const auto it = args.find("enabled");
+            if (it == args.end()) {
+                return sdk::call_invalid_argument("missing required arg 'enabled'");
+            }
+            if (args.size() != 1) {
+                return sdk::call_invalid_argument("set_led accepts only one arg: enabled");
+            }
+            if (it->second.type() != adpp::VALUE_TYPE_BOOL) {
+                return sdk::call_invalid_argument("arg 'enabled' must be VALUE_TYPE_BOOL");
+            }
+            out->led_enabled = it->second.bool_value();
+            return std::nullopt;
+        }
+        case runtime::kFunctionCalibrate:
+            return validate_calibrate_args(type, args, out);
+        default:
+            return sdk::call_invalid_argument("unsupported function_id");
+    }
 }
 
 // A device that answers 254 (still processing) is read again this many times,
@@ -201,6 +264,8 @@ constexpr uint32_t kPendingRereadMs = 250;
 // A call's deadline covers the command's own wait plus this much for the
 // response read and any re-reads, as a sample read's covers its latency.
 constexpr int kResponseHeadroomMs = 1500;
+// Decimals sent with a pH reference value, as in Cal,mid,7.00.
+constexpr uint8_t kReferencePhDecimals = 2;
 
 // Read the response code a command left, after its wait (#144).
 i2c::Status read_command_response(ezo_i2c_device_t* device) {
@@ -239,19 +304,20 @@ i2c::Status read_command_response(ezo_i2c_device_t* device) {
 // canned bus answers the send, so the same path runs for real and mock. Returns
 // a neutral AdapterCallResult.
 sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, uint32_t function_id,
-                                         bool set_led_enabled, int timeout_ms) {
-    const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
+                                         const ControlArgs& args, int timeout_ms) {
+    const EzoDeviceType type = device.spec.type;
+    const ezo_product_id_t product_id = devices::adapter_for(type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
         return {false, Status::CODE_INTERNAL, "unsupported configured device type for control call"};
     }
 
     // The deadline is at least the command's wait plus the headroom, so a
-    // command the device runs is not reported as timed out (#144). find,
-    // set_led and sleep are all generic commands; a calibration command (#90)
-    // has a longer wait and needs its own kind here.
+    // command the device runs is not reported as timed out (#144). calibrate
+    // waits as a calibration command; every other function is a generic one.
+    const ezo_command_kind_t kind =
+        function_id == runtime::kFunctionCalibrate ? EZO_COMMAND_CALIBRATION : EZO_COMMAND_GENERIC;
     ezo_timing_hint_t command_wait{};
-    if (ezo_product_resolve_timing_hint(product_id, EZO_PRODUCT_TRANSPORT_I2C, EZO_COMMAND_GENERIC, &command_wait) !=
-        EZO_OK) {
+    if (ezo_product_resolve_timing_hint(product_id, EZO_PRODUCT_TRANSPORT_I2C, kind, &command_wait) != EZO_OK) {
         return {false, Status::CODE_INTERNAL, "no command timing for the configured device type"};
     }
     const std::chrono::milliseconds timeout(
@@ -261,7 +327,7 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
     const auto address = static_cast<uint8_t>(device.spec.address);
     const i2c::Status status = runtime::submit_i2c_job(
         "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout,
-        [address, function_id, product_id, set_led_enabled](i2c::I2cBus& bus) {
+        [address, function_id, type, product_id, args](i2c::I2cBus& bus) {
             i2c::EzoDeviceBinding binding;
             i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, address, binding);
             if (!bind_status.is_ok()) {
@@ -276,10 +342,23 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
                     break;
                 case runtime::kFunctionSetLed:
                     result =
-                        ezo_control_send_led_set_i2c(&binding.device, product_id, set_led_enabled ? 1U : 0U, &hint);
+                        ezo_control_send_led_set_i2c(&binding.device, product_id, args.led_enabled ? 1U : 0U, &hint);
                     break;
                 case runtime::kFunctionSleep:
                     result = ezo_control_send_sleep_i2c(&binding.device, product_id, &hint);
+                    break;
+                case runtime::kFunctionCalibrate:
+                    result = type == EzoDeviceType::Ph
+                                 ? ezo_ph_send_calibration_i2c(
+                                       &binding.device, static_cast<ezo_ph_calibration_point_t>(args.calibration_point),
+                                       args.reference_ph, kReferencePhDecimals, &hint)
+                                 : ezo_do_send_calibration_i2c(
+                                       &binding.device, static_cast<ezo_do_calibration_point_t>(args.calibration_point),
+                                       &hint);
+                    break;
+                case runtime::kFunctionClearCalibration:
+                    result = type == EzoDeviceType::Ph ? ezo_ph_send_clear_calibration_i2c(&binding.device, &hint)
+                                                       : ezo_do_send_clear_calibration_i2c(&binding.device, &hint);
                     break;
                 default:
                     return devices::make_status(i2c::StatusCode::InvalidArgument, "unsupported function_id");
@@ -623,17 +702,16 @@ sdk::AdapterCallResult EzoProviderRuntime::call(const std::string& device_id, ui
         return sdk::call_not_found("unknown function_id");
     }
 
-    bool set_led_enabled = false;
-    std::string arg_error;
-    if (!validate_call_args(function_id, args, &set_led_enabled, &arg_error)) {
-        runtime::record_call_result(device_id, function_spec->name(), false, arg_error);
-        return sdk::call_invalid_argument(arg_error);
+    ControlArgs control_args;
+    if (const auto arg_error = validate_call_args(function_id, device->spec.type, args, &control_args)) {
+        runtime::record_call_result(device_id, function_spec->name(), false, arg_error->error_message);
+        return *arg_error;
     }
 
     // The SDK call() carries no caller deadline; execute_safe_call sizes one from
     // the provider's configured timeout and the command's own wait.
     const sdk::AdapterCallResult result =
-        execute_safe_call(*device, function_id, set_led_enabled, state.config.timeout_ms);
+        execute_safe_call(*device, function_id, control_args, state.config.timeout_ms);
     if (!result.ok) {
         runtime::record_call_result(device_id, function_spec->name(), false, result.error_message);
         logging::warning("call failed for device '" + device_id + "' function '" + function_spec->name() +

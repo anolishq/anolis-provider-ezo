@@ -115,6 +115,9 @@ struct RuntimeState {
 constexpr uint32_t kFunctionFind = 1;
 constexpr uint32_t kFunctionSetLed = 2;
 constexpr uint32_t kFunctionSleep = 3;
+// pH and DO also declare calibration, numbered after the shared three (#90).
+constexpr uint32_t kFunctionCalibrate = 4;
+constexpr uint32_t kFunctionClearCalibration = 5;
 
 /** @brief Reset global runtime state and stop any running executor. */
 void reset();

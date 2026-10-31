@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <thread>
@@ -630,3 +631,162 @@ TEST(EzoControlResponseTest, SleepIsNotReadBack) {
     EXPECT_TRUE(result.ok) << result.error_message;
     anolis_provider_ezo::runtime::reset();
 }
+
+// pH and DO calibration (#90): calibrate and clear_calibration, MANUAL-only,
+// with their args checked before any bus work.
+namespace {
+
+adpp::Value string_value(const std::string& text) {
+    adpp::Value value;
+    value.set_type(adpp::VALUE_TYPE_STRING);
+    value.set_string_value(text);
+    return value;
+}
+
+adpp::Value double_value(double number) {
+    adpp::Value value;
+    value.set_type(adpp::VALUE_TYPE_DOUBLE);
+    value.set_double_value(number);
+    return value;
+}
+
+google::protobuf::Map<std::string, adpp::Value> ph_args(const std::string& point, double reference_ph) {
+    google::protobuf::Map<std::string, adpp::Value> args;
+    args["point"] = string_value(point);
+    args["reference_ph"] = double_value(reference_ph);
+    return args;
+}
+
+google::protobuf::Map<std::string, adpp::Value> do_args(const std::string& point) {
+    google::protobuf::Map<std::string, adpp::Value> args;
+    args["point"] = string_value(point);
+    return args;
+}
+
+const adpp::FunctionSpec* function_named(const anolis_provider_ezo::runtime::ActiveDevice& device,
+                                         const std::string& name) {
+    for (const auto& function : device.capabilities.functions()) {
+        if (function.name() == name) {
+            return &function;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+TEST(EzoCalibrationTest, PhAndDoDeclareManualOnlyCalibration) {
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.devices.push_back(
+        anolis_provider_ezo::DeviceSpec{"rtd0", anolis_provider_ezo::EzoDeviceType::Rtd, "Tank temp", 0x66});
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    ASSERT_EQ(state.active_devices.size(), 3u);
+
+    for (const auto& device : state.active_devices) {
+        const auto* calibrate = function_named(device, "calibrate");
+        const auto* clear = function_named(device, "clear_calibration");
+        if (device.spec.id == "rtd0") {
+            EXPECT_EQ(calibrate, nullptr);
+            EXPECT_EQ(clear, nullptr);
+            continue;
+        }
+        ASSERT_NE(calibrate, nullptr) << device.spec.id;
+        ASSERT_NE(clear, nullptr) << device.spec.id;
+        EXPECT_EQ(calibrate->function_id(), anolis_provider_ezo::runtime::kFunctionCalibrate);
+        EXPECT_EQ(clear->function_id(), anolis_provider_ezo::runtime::kFunctionClearCalibration);
+        for (const auto* function : {calibrate, clear}) {
+            ASSERT_EQ(function->policy().allowed_modes_size(), 1) << function->name();
+            EXPECT_EQ(function->policy().allowed_modes(0), "MANUAL");
+            EXPECT_FALSE(function->policy().is_idempotent());
+        }
+        const auto& point = calibrate->args(0);
+        EXPECT_EQ(point.name(), "point");
+        if (device.spec.id == "ph0") {
+            EXPECT_EQ(std::vector<std::string>(point.allowed_values().begin(), point.allowed_values().end()),
+                      (std::vector<std::string>{"mid", "low", "high"}));
+            ASSERT_EQ(calibrate->args_size(), 2);
+            EXPECT_EQ(calibrate->args(1).min_double(), 0.0);
+            EXPECT_EQ(calibrate->args(1).max_double(), 14.0);
+        } else {
+            EXPECT_EQ(std::vector<std::string>(point.allowed_values().begin(), point.allowed_values().end()),
+                      (std::vector<std::string>{"atmospheric", "zero"}));
+            EXPECT_EQ(calibrate->args_size(), 1);
+        }
+    }
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationTest, CalibrateSendsTheDatasheetCommand) {
+    // Each case's device rejects exactly the command calibrate should send, so
+    // the rejection proves the wire string; an unrejected call succeeds.
+    struct Case {
+        const char* device;
+        uint32_t function_id;
+        google::protobuf::Map<std::string, adpp::Value> args;
+        const char* command;
+    };
+    const std::vector<Case> cases = {
+        {"ph0", anolis_provider_ezo::runtime::kFunctionCalibrate, ph_args("mid", 7.0), "Cal,mid,7.00"},
+        {"ph0", anolis_provider_ezo::runtime::kFunctionCalibrate, ph_args("low", 4.0), "Cal,low,4.00"},
+        {"ph0", anolis_provider_ezo::runtime::kFunctionCalibrate, ph_args("high", 10.01), "Cal,high,10.01"},
+        {"ph0", anolis_provider_ezo::runtime::kFunctionClearCalibration, {}, "Cal,clear"},
+        {"do0", anolis_provider_ezo::runtime::kFunctionCalibrate, do_args("atmospheric"), "Cal"},
+        {"do0", anolis_provider_ezo::runtime::kFunctionCalibrate, do_args("zero"), "Cal,0"},
+        {"do0", anolis_provider_ezo::runtime::kFunctionClearCalibration, {}, "Cal,clear"},
+    };
+    for (const auto& c : cases) {
+        auto accepting = make_runtime_on("mock://calibrate-ok");
+        const auto ok = accepting.call(c.device, c.function_id, c.args);
+        EXPECT_TRUE(ok.ok) << c.command << ": " << ok.error_message;
+
+        auto rejecting = make_runtime_on(std::string("mock://calibrate-reject?status=") + c.command + ":2");
+        const auto rejected = rejecting.call(c.device, c.function_id, c.args);
+        EXPECT_FALSE(rejected.ok) << c.command;
+        EXPECT_NE(rejected.error_message.find("rejected"), std::string::npos) << c.command << ": "
+                                                                              << rejected.error_message;
+    }
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationTest, CalibrateChecksItsArgs) {
+    auto rt = make_runtime_on("mock://calibrate-args");
+    const auto calibrate = anolis_provider_ezo::runtime::kFunctionCalibrate;
+    auto expect_code = [&](const char* device, google::protobuf::Map<std::string, adpp::Value> args,
+                           adpp::Status::Code code, const char* why) {
+        const auto result = rt.call(device, calibrate, args);
+        EXPECT_FALSE(result.ok) << why;
+        EXPECT_EQ(result.error_code, code) << why << ": " << result.error_message;
+    };
+
+    expect_code("ph0", ph_args("middle", 7.0), adpp::Status::CODE_INVALID_ARGUMENT, "unknown point");
+    expect_code("ph0", ph_args("mid", -0.01), adpp::Status::CODE_OUT_OF_RANGE, "below 0");
+    expect_code("ph0", ph_args("mid", 14.01), adpp::Status::CODE_OUT_OF_RANGE, "above 14");
+    // The driver would refuse NaN too, but inside the bus job; the provider
+    // refuses it first, with its own message.
+    const auto nan = rt.call("ph0", calibrate, ph_args("mid", std::nan("")));
+    EXPECT_EQ(nan.error_code, adpp::Status::CODE_INVALID_ARGUMENT) << nan.error_message;
+    EXPECT_NE(nan.error_message.find("finite"), std::string::npos) << nan.error_message;
+    expect_code("ph0", do_args("mid"), adpp::Status::CODE_INVALID_ARGUMENT, "missing reference_ph");
+    expect_code("do0", do_args("mid"), adpp::Status::CODE_INVALID_ARGUMENT, "pH point on DO");
+    expect_code("do0", ph_args("zero", 7.0), adpp::Status::CODE_INVALID_ARGUMENT, "extra arg on DO");
+    auto wrong_type = ph_args("mid", 7.0);
+    wrong_type["reference_ph"] = string_value("7");
+    expect_code("ph0", wrong_type, adpp::Status::CODE_INVALID_ARGUMENT, "reference_ph as a string");
+
+    EXPECT_TRUE(rt.call("ph0", calibrate, ph_args("mid", 0.0)).ok) << "0 is inside the bounds";
+    EXPECT_TRUE(rt.call("ph0", calibrate, ph_args("mid", 14.0)).ok) << "14 is inside the bounds";
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationTest, CalibrationGetsTheCalibrationWait) {
+    // A DO calibration waits 1300 ms. With every re-read used (4 x 250 ms) it
+    // runs about 2.3 s: past a generic command's 1.8 s deadline, inside the
+    // 2.8 s a calibration gets.
+    auto rt = make_runtime_on("mock://calibrate-wait?sleep_delays=1&pending=Cal:4");
+    const auto result = rt.call("do0", anolis_provider_ezo::runtime::kFunctionCalibrate, do_args("atmospheric"));
+    EXPECT_TRUE(result.ok) << result.error_message;
+    anolis_provider_ezo::runtime::reset();
+}
+

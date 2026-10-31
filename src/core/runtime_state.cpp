@@ -57,6 +57,8 @@ constexpr uint32_t kCadenceLagStreak = 3;
 using ArgSpec = anolis::deviceprovider::v1::ArgSpec;
 using FunctionSpec = anolis::deviceprovider::v1::FunctionSpec;
 constexpr auto kValueTypeBool = anolis::deviceprovider::v1::VALUE_TYPE_BOOL;
+constexpr auto kValueTypeDouble = anolis::deviceprovider::v1::VALUE_TYPE_DOUBLE;
+constexpr auto kValueTypeString = anolis::deviceprovider::v1::VALUE_TYPE_STRING;
 constexpr auto kCategoryConfig = anolis::deviceprovider::v1::FunctionPolicy_Category_CATEGORY_CONFIG;
 
 // Per-family signal tables, read/mock logic, and EZO error/timing helpers now
@@ -96,10 +98,10 @@ FunctionSpec *add_function_spec(anolis::deviceprovider::v1::CapabilitySet &caps,
     return function;
 }
 
-void add_arg_spec(FunctionSpec *function, const char *name, anolis::deviceprovider::v1::ValueType type,
-                  const char *description, bool required) {
+ArgSpec *add_arg_spec(FunctionSpec *function, const char *name, anolis::deviceprovider::v1::ValueType type,
+                      const char *description, bool required) {
     if (function == nullptr) {
-        return;
+        return nullptr;
     }
 
     ArgSpec *arg = function->add_args();
@@ -107,6 +109,7 @@ void add_arg_spec(FunctionSpec *function, const char *name, anolis::deviceprovid
     arg->set_type(type);
     arg->set_description(description);
     arg->set_required(required);
+    return arg;
 }
 
 void add_result_spec(FunctionSpec *function, const char *name, anolis::deviceprovider::v1::ValueType type,
@@ -138,6 +141,44 @@ void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
                                                "Put the device into low-power sleep mode.", kCategoryConfig, true);
     add_result_spec(sleep_fn, "accepted", kValueTypeBool,
                     "true when the command is sent; the device is not asked whether it accepted it");
+}
+
+// Calibration for the families a project runs today (#90). Both functions are
+// MANUAL-only, so neither a behaviour tree nor a mode hook can call them.
+void add_calibration_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps, EzoDeviceType type) {
+    if (type != EzoDeviceType::Ph && type != EzoDeviceType::Do) {
+        return;
+    }
+
+    FunctionSpec *calibrate_fn =
+        add_function_spec(caps, kFunctionCalibrate, "calibrate",
+                          type == EzoDeviceType::Ph
+                              ? "Calibrate one point with the probe in a reference solution. Do mid first: it clears "
+                                "the low and high points."
+                              : "Calibrate one point: atmospheric with the probe in air, or zero in a zero-oxygen "
+                                "solution. For two points, do zero first.",
+                          kCategoryConfig, false);
+    calibrate_fn->mutable_policy()->add_allowed_modes("MANUAL");
+    ArgSpec *point = add_arg_spec(calibrate_fn, "point", kValueTypeString, "Calibration point", true);
+    if (type == EzoDeviceType::Ph) {
+        point->add_allowed_values("mid");
+        point->add_allowed_values("low");
+        point->add_allowed_values("high");
+        ArgSpec *reference = add_arg_spec(calibrate_fn, "reference_ph", kValueTypeDouble,
+                                          "pH of the reference solution, as printed on it", true);
+        reference->set_unit("pH");
+        reference->set_min_double(0.0);
+        reference->set_max_double(14.0);
+    } else {
+        point->add_allowed_values("atmospheric");
+        point->add_allowed_values("zero");
+    }
+    add_result_spec(calibrate_fn, "accepted", kValueTypeBool, "true when the device accepts the calibration");
+
+    FunctionSpec *clear_fn = add_function_spec(caps, kFunctionClearCalibration, "clear_calibration",
+                                               "Delete all calibration data on the device.", kCategoryConfig, false);
+    clear_fn->mutable_policy()->add_allowed_modes("MANUAL");
+    add_result_spec(clear_fn, "accepted", kValueTypeBool, "true when the device accepts the command");
 }
 
 std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
@@ -185,6 +226,7 @@ anolis::deviceprovider::v1::CapabilitySet build_capabilities(const ProviderConfi
         signal->set_stale_after_ms(static_cast<uint32_t>(stale_after_ms(config)));
     }
     add_safe_function_specs(capabilities);
+    add_calibration_function_specs(capabilities, type);
     return capabilities;
 }
 
