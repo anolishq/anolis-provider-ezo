@@ -44,8 +44,8 @@ struct DeviceSpec {
  * `polling.interval_ms`. Freshness bounds and the advertised poll hint derive
  * from it; a mismatch is warned about once per device at runtime.
  *
- * `timeout_ms` and `retry_count` configure the Linux transport defaults used by
- * the bus and bus executor.
+ * `timeout_ms` bounds how long a request waits for its bus job (see its schema
+ * description); `retry_count` sets the Linux transport's retries.
  */
 struct ProviderConfig {
     std::string config_file_path;

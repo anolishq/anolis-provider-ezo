@@ -126,17 +126,18 @@ void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
     FunctionSpec *find_fn = add_function_spec(caps, kFunctionFind, "find",
                                               "Blink the device LED to help identify physical hardware on the bus.",
                                               kCategoryConfig, false);
-    add_result_spec(find_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
+    add_result_spec(find_fn, "accepted", kValueTypeBool, "true when the device accepts the command");
 
     FunctionSpec *set_led_fn = add_function_spec(caps, kFunctionSetLed, "set_led",
                                                  "Enable or disable the device status LED.", kCategoryConfig, true);
     add_arg_spec(set_led_fn, "enabled", kValueTypeBool, "LED state (true=on, false=off)", true);
     add_result_spec(set_led_fn, "enabled", kValueTypeBool, "Echoed requested LED state");
-    add_result_spec(set_led_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
+    add_result_spec(set_led_fn, "accepted", kValueTypeBool, "true when the device accepts the command");
 
     FunctionSpec *sleep_fn = add_function_spec(caps, kFunctionSleep, "sleep",
                                                "Put the device into low-power sleep mode.", kCategoryConfig, true);
-    add_result_spec(sleep_fn, "accepted", kValueTypeBool, "true when the command is accepted by the provider");
+    add_result_spec(sleep_fn, "accepted", kValueTypeBool,
+                    "true when the command is sent; the device is not asked whether it accepted it");
 }
 
 std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
@@ -146,7 +147,7 @@ std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
         // fault-injecting decorator (anolishq/anolis#99); with no spec it is a
         // pass-through so plain mock:// stays a clean, fault-free device.
         auto [path, query] = anolis::provider_sdk::i2c::split_bus_query(config.bus_path);
-        auto canned = std::make_unique<i2c::EzoCannedBus>(path);
+        auto canned = std::make_unique<i2c::EzoCannedBus>(path, i2c::CannedOptions::parse(query));
         const auto spec = anolis::provider_sdk::i2c::FaultSpec::parse(query);
         if (spec.any()) {
             return std::make_unique<anolis::provider_sdk::i2c::FaultInjectingI2cBus>(std::move(canned), spec);

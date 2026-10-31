@@ -21,6 +21,7 @@
 
 extern "C" {
 #include "ezo_control.h"
+#include "ezo_i2c.h"
 #include "ezo_product.h"
 }
 
@@ -193,15 +194,68 @@ bool validate_call_args(uint32_t function_id, const sdk::ValueMap& args, bool* s
     return false;
 }
 
+// A device that answers 254 (still processing) is read again this many times,
+// this far apart, before the call fails (#144).
+constexpr int kPendingRereads = 4;
+constexpr uint32_t kPendingRereadMs = 250;
+// A call's deadline covers the command's own wait plus this much for the
+// response read and any re-reads, as a sample read's covers its latency.
+constexpr int kResponseHeadroomMs = 1500;
+
+// Read the response code a command left, after its wait (#144).
+i2c::Status read_command_response(ezo_i2c_device_t* device) {
+    for (int reread = 0;; ++reread) {
+        char buffer[32] = {};
+        size_t response_len = 0;
+        ezo_device_status_t device_status = EZO_STATUS_UNKNOWN;
+        const ezo_result_t result = ezo_read_response(device, buffer, sizeof(buffer), &response_len, &device_status);
+        if (result != EZO_OK) {
+            return devices::status_from_ezo_result(result, "read command response");
+        }
+        switch (device_status) {
+            case EZO_STATUS_SUCCESS:
+                return i2c::Status::ok();
+            case EZO_STATUS_FAIL:
+                return devices::make_status(i2c::StatusCode::Internal,
+                                            "device rejected the command (response code 2, syntax error)");
+            case EZO_STATUS_NOT_READY:
+                if (reread < kPendingRereads) {
+                    devices::wait_for_timing_hint(device, ezo_timing_hint_t{kPendingRereadMs});
+                    continue;
+                }
+                return devices::make_status(i2c::StatusCode::Unavailable,
+                                            "device still processing the command (response code 254)");
+            case EZO_STATUS_NO_DATA:
+                return devices::make_status(i2c::StatusCode::Unavailable,
+                                            "device returned no data for the command (response code 255)");
+            case EZO_STATUS_UNKNOWN:
+                break;
+        }
+        return devices::make_status(i2c::StatusCode::Internal, "device returned an unknown response code");
+    }
+}
+
 // Execute one control call through the serialized I2C executor. In mock mode the
 // canned bus answers the send, so the same path runs for real and mock. Returns
 // a neutral AdapterCallResult.
 sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, uint32_t function_id,
-                                         bool set_led_enabled, std::chrono::milliseconds timeout) {
+                                         bool set_led_enabled, int timeout_ms) {
     const ezo_product_id_t product_id = devices::adapter_for(device.spec.type).expected_product;
     if (product_id == EZO_PRODUCT_UNKNOWN) {
         return {false, Status::CODE_INTERNAL, "unsupported configured device type for control call"};
     }
+
+    // The deadline is at least the command's wait plus the headroom, so a
+    // command the device runs is not reported as timed out (#144). find,
+    // set_led and sleep are all generic commands; a calibration command (#90)
+    // has a longer wait and needs its own kind here.
+    ezo_timing_hint_t command_wait{};
+    if (ezo_product_resolve_timing_hint(product_id, EZO_PRODUCT_TRANSPORT_I2C, EZO_COMMAND_GENERIC, &command_wait) !=
+        EZO_OK) {
+        return {false, Status::CODE_INTERNAL, "no command timing for the configured device type"};
+    }
+    const std::chrono::milliseconds timeout(
+        std::max(timeout_ms, static_cast<int>(command_wait.wait_ms) + kResponseHeadroomMs));
 
     // The job captures by value: it can outlive this call (#138).
     const auto address = static_cast<uint8_t>(device.spec.address);
@@ -235,7 +289,11 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
                 return devices::status_from_ezo_result(result, "send control command");
             }
             devices::wait_for_timing_hint(&binding.device, hint);
-            return i2c::Status::ok();
+            // The datasheets say not to read the status byte after Sleep.
+            if (function_id == runtime::kFunctionSleep) {
+                return i2c::Status::ok();
+            }
+            return read_command_response(&binding.device);
         });
     return {status.is_ok(), map_i2c_status_code(status.code), status.message};
 }
@@ -572,11 +630,10 @@ sdk::AdapterCallResult EzoProviderRuntime::call(const std::string& device_id, ui
         return sdk::call_invalid_argument(arg_error);
     }
 
-    // The SDK call() carries no caller deadline; use the provider's configured
-    // timeout budget only (the pre-migration CallRequest.deadline clamp is dropped).
-    const std::chrono::milliseconds timeout(std::max(state.config.timeout_ms, 1));
-
-    const sdk::AdapterCallResult result = execute_safe_call(*device, function_id, set_led_enabled, timeout);
+    // The SDK call() carries no caller deadline; execute_safe_call sizes one from
+    // the provider's configured timeout and the command's own wait.
+    const sdk::AdapterCallResult result =
+        execute_safe_call(*device, function_id, set_led_enabled, state.config.timeout_ms);
     if (!result.ok) {
         runtime::record_call_result(device_id, function_spec->name(), false, result.error_message);
         logging::warning("call failed for device '" + device_id + "' function '" + function_spec->name() +
