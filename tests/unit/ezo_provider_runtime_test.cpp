@@ -697,6 +697,8 @@ TEST(EzoCalibrationTest, PhAndDoDeclareManualOnlyCalibration) {
         EXPECT_EQ(calibrate->function_id(), anolis_provider_ezo::runtime::kFunctionCalibrate);
         EXPECT_EQ(clear->function_id(), anolis_provider_ezo::runtime::kFunctionClearCalibration);
         for (const auto* function : {calibrate, clear}) {
+            // CONFIG, not READ: the e-stop latch lets only READ functions through.
+            EXPECT_EQ(function->policy().category(), adpp::FunctionPolicy_Category_CATEGORY_CONFIG) << function->name();
             ASSERT_EQ(function->policy().allowed_modes_size(), 1) << function->name();
             EXPECT_EQ(function->policy().allowed_modes(0), "MANUAL");
             EXPECT_FALSE(function->policy().is_idempotent());
@@ -707,8 +709,11 @@ TEST(EzoCalibrationTest, PhAndDoDeclareManualOnlyCalibration) {
             EXPECT_EQ(std::vector<std::string>(point.allowed_values().begin(), point.allowed_values().end()),
                       (std::vector<std::string>{"mid", "low", "high"}));
             ASSERT_EQ(calibrate->args_size(), 2);
-            EXPECT_EQ(calibrate->args(1).min_double(), 0.0);
-            EXPECT_EQ(calibrate->args(1).max_double(), 14.0);
+            const auto& reference = calibrate->args(1);
+            ASSERT_TRUE(reference.has_min_double());
+            ASSERT_TRUE(reference.has_max_double());
+            EXPECT_EQ(reference.min_double(), 0.0);
+            EXPECT_EQ(reference.max_double(), 14.0);
         } else {
             EXPECT_EQ(std::vector<std::string>(point.allowed_values().begin(), point.allowed_values().end()),
                       (std::vector<std::string>{"atmospheric", "zero"}));
@@ -770,6 +775,9 @@ TEST(EzoCalibrationTest, CalibrateChecksItsArgs) {
     expect_code("ph0", do_args("mid"), adpp::Status::CODE_INVALID_ARGUMENT, "missing reference_ph");
     expect_code("do0", do_args("mid"), adpp::Status::CODE_INVALID_ARGUMENT, "pH point on DO");
     expect_code("do0", ph_args("zero", 7.0), adpp::Status::CODE_INVALID_ARGUMENT, "extra arg on DO");
+    auto extra = ph_args("mid", 7.0);
+    extra["temperature_c"] = double_value(25.0);
+    expect_code("ph0", extra, adpp::Status::CODE_INVALID_ARGUMENT, "extra arg on pH");
     auto wrong_type = ph_args("mid", 7.0);
     wrong_type["reference_ph"] = string_value("7");
     expect_code("ph0", wrong_type, adpp::Status::CODE_INVALID_ARGUMENT, "reference_ph as a string");

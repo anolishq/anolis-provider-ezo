@@ -31,10 +31,10 @@ runtime refuses them in any other mode (runtime 0.6.0 or later enforces this).
 
 Arguments are checked before any bus work: an unknown point, a wrong type, a
 missing or extra arg, or a non-finite `reference_ph` is `INVALID_ARGUMENT`, and a
-`reference_ph` outside 0 to 14 is `OUT_OF_RANGE`. The call then waits the
-driver's calibration time (pH 900 ms, DO 1300 ms) and reads the device's
-response code, as every control call but `sleep` does: a rejection (code 2)
-fails the call.
+`reference_ph` outside 0 to 14 is `OUT_OF_RANGE`. `calibrate` then waits the
+driver's calibration time (pH 900 ms, DO 1300 ms); `clear_calibration` waits a
+generic command's 300 ms. Both then read the device's response code, as every
+control call but `sleep` does: a rejection (code 2) fails the call.
 
 Calibrating pH at `mid` clears the low and high points, so a full calibration
 is mid, then low, then high. For a two-point DO calibration, do `zero` first.

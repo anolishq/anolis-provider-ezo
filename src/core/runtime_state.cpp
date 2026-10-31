@@ -144,7 +144,7 @@ void add_safe_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps) {
 }
 
 // Calibration for the families a project runs today (#90). Both functions are
-// MANUAL-only, so neither a behaviour tree nor a mode hook can call them.
+// MANUAL-only: runtime 0.6.0 and later refuse them in any other mode.
 void add_calibration_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps, EzoDeviceType type) {
     if (type != EzoDeviceType::Ph && type != EzoDeviceType::Do) {
         return;

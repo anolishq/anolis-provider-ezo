@@ -42,10 +42,7 @@ The design needs to stay simple, avoid hidden coupling between providers, and re
 
 1. UART transport support.
 2. Auto discovery.
-3. High-risk control commands: factory reset, I2C address change, protocol
-   lock, UART switching and calibration import. pH and DO calibration is in
-   scope since anolishq/anolis-provider-ezo#90; see
-   [device-contracts-v1.md](device-contracts-v1.md).
+3. High-risk control/calibration command surface.
 4. Runtime-global lock manager or broker process.
 
 ## Amendment (2026-10-09)
@@ -55,3 +52,13 @@ Providers publish an `anolis.claim` tag built with the provider SDK's
 `i2c::claim_key`, and the runtime rejects duplicate keys without parsing them,
 so it no longer knows about I2C. The rest of this ADR stands. See
 [runtime-ownership-validation-inputs.md](runtime-ownership-validation-inputs.md).
+
+## Amendment (2026-10-31)
+
+Decision 5 and non-goal 3 now allow calibration for pH and DO
+(anolishq/anolis-provider-ezo#90). Those two families also declare `calibrate`
+and `clear_calibration`, MANUAL-only; see
+[device-contracts-v1.md](device-contracts-v1.md). The rest of the high-risk
+surface stays out: factory reset, I2C address change, protocol lock, UART
+switching and calibration import. Calibration for the other families is
+tracked separately. The rest of this ADR stands.
