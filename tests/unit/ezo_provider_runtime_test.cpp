@@ -580,6 +580,17 @@ TEST(EzoControlResponseTest, ARejectedCommandFails) {
     anolis_provider_ezo::runtime::reset();
 }
 
+TEST(EzoControlResponseTest, ARejectedLedCommandFails) {
+    auto rt = make_runtime_on("mock://control-reject-led?status=L,1:2");
+    google::protobuf::Map<std::string, adpp::Value> args;
+    args["enabled"].set_type(adpp::VALUE_TYPE_BOOL);
+    args["enabled"].set_bool_value(true);
+    const auto result = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionSetLed, args);
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error_message.find("rejected"), std::string::npos) << result.error_message;
+    anolis_provider_ezo::runtime::reset();
+}
+
 TEST(EzoControlResponseTest, AStillProcessingResponseIsReadAgain) {
     // Four 254 answers use every re-read: 300 ms for Find plus 4 x 250 ms
     // apart, which must fit inside the call's deadline.
