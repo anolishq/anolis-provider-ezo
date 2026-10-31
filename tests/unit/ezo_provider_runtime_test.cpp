@@ -744,8 +744,7 @@ TEST(EzoCalibrationTest, CalibrateSendsTheDatasheetCommand) {
         auto rejecting = make_runtime_on(std::string("mock://calibrate-reject?status=") + c.command + ":2");
         const auto rejected = rejecting.call(c.device, c.function_id, c.args);
         EXPECT_FALSE(rejected.ok) << c.command;
-        EXPECT_NE(rejected.error_message.find("rejected"), std::string::npos) << c.command << ": "
-                                                                              << rejected.error_message;
+        EXPECT_NE(rejected.error_message.find("rejected"), std::string::npos) << c.command;
     }
     anolis_provider_ezo::runtime::reset();
 }
@@ -789,4 +788,3 @@ TEST(EzoCalibrationTest, CalibrationGetsTheCalibrationWait) {
     EXPECT_TRUE(result.ok) << result.error_message;
     anolis_provider_ezo::runtime::reset();
 }
-
