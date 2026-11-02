@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,11 @@ struct ActiveDevice {
     std::string startup_product_code;
     std::string startup_firmware_version;
     DeviceSampleCache sample;
+    // The last calibration level read from the device (Cal,?), kept outside
+    // `sample` because each poll replaces that (#145). Empty until read, or
+    // when the last read failed, with the reason in calibration_level_error.
+    std::optional<double> calibration_level;
+    std::string calibration_level_error;
 
     bool has_last_call = false;
     bool last_call_ok = false;
@@ -174,6 +180,14 @@ int stale_after_ms(const ProviderConfig &config);
 
 /** @brief Refresh one device's cached sample immediately. */
 i2c::Status refresh_device_sample(const std::string &device_id);
+
+/**
+ * @brief Read one device's calibration level (Cal,?) and store it (#145).
+ *
+ * A no-op for a family without calibration. On failure the level becomes
+ * unknown, so a stale level is never reported after a calibration.
+ */
+i2c::Status refresh_calibration_level(const std::string &device_id);
 
 /** @brief Record the last control-call result for one active device. */
 void record_call_result(const std::string &device_id, const std::string &function_name, bool ok,

@@ -4,6 +4,16 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **pH and DO calibration level** (#145, for #90). `sensor.ezo.ph` declares
+  `ph_calibration_level` and `sensor.ezo.do` declares `do_calibration_level`:
+  the device's answer to `Cal,?` (pH 0 to 3 points, DO 0 to 2). The provider
+  reads it at startup and after each successful `calibrate` or
+  `clear_calibration`, not on every poll, and each sample carries it. A level
+  never read, or whose last read failed, is unavailable rather than 0, so an
+  operator sees whether a calibration took without a call result.
+
 ## [0.5.0] - 2026-11-01
 
 0.5.0 is a minor release: control calls now fail when the device rejects a

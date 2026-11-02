@@ -314,6 +314,32 @@ i2c::Status read_sample_from_bound_device(ezo_i2c_device_t *device, const Device
     return devices::adapter_for(spec.type).read_sample(device, *signals_out);
 }
 
+// The calibration level is read on demand, not each poll, so the cached value
+// is written into its slot of every new sample (#145). A level never read, or
+// whose last read failed, is unavailable rather than 0.
+void apply_calibration_level(ActiveDevice &device) {
+    const devices::DeviceAdapter &adapter = devices::adapter_for(device.spec.type);
+    if (adapter.calibration_level_signal < 0) {
+        return;
+    }
+    const auto index = static_cast<size_t>(adapter.calibration_level_signal);
+    if (index >= device.sample.signals.size()) {
+        return;
+    }
+    SignalSample &slot = device.sample.signals[index];
+    if (device.calibration_level.has_value()) {
+        slot.available = true;
+        slot.has_value = true;
+        slot.value = *device.calibration_level;
+        slot.unavailable_reason.clear();
+    } else {
+        slot.available = false;
+        slot.has_value = false;
+        slot.unavailable_reason =
+            device.calibration_level_error.empty() ? "calibration level not read yet" : device.calibration_level_error;
+    }
+}
+
 std::string build_startup_message(const RuntimeState &state) {
     std::ostringstream out;
     out << "startup complete: active=" << state.active_devices.size() << ", excluded=" << state.excluded_devices.size()
@@ -484,6 +510,11 @@ void initialize(const ProviderConfig &config) {
             logging::warning(
                 std::format("startup sample failed for device '{}': {}", device_id, refresh_status.message));
         }
+        const i2c::Status level_status = refresh_calibration_level(device_id);
+        if (!level_status.is_ok()) {
+            logging::warning(std::format("startup calibration-level read failed for device '{}': {}", device_id,
+                                         level_status.message));
+        }
     }
 }
 
@@ -632,6 +663,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
                 }
             }
             it->sample.signals = std::move(*new_signals);
+            apply_calibration_level(*it);
             it->sample.sampled_at = now;
             it->sample.sampled_at_steady = now_steady;
             it->sample.has_sample = true;
@@ -656,6 +688,53 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     if (!cadence_warning.empty()) {
         logging::warning(cadence_warning);
     }
+    return status;
+}
+
+i2c::Status refresh_calibration_level(const std::string &device_id) {
+    ProviderConfig config;
+    DeviceSpec spec;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        auto it = find_active_device_unlocked(g_state.active_devices, device_id);
+        if (it == g_state.active_devices.end()) {
+            return make_status(i2c::StatusCode::NotFound, "unknown device_id");
+        }
+        config = g_state.config;
+        spec = it->spec;
+    }
+    const auto reader = devices::adapter_for(spec.type).read_calibration_level;
+    if (reader == nullptr) {
+        return i2c::Status::ok();
+    }
+
+    // The job owns its inputs and output: it can outlive this call (#138).
+    auto level = std::make_shared<double>(0.0);
+    const int timeout_ms = std::max(config.timeout_ms, query_latency_ms(config) + 1500);
+    i2c::Status status = submit_i2c_job("calibration-level:" + device_id, std::chrono::milliseconds(timeout_ms),
+                                        [level, spec, reader](i2c::I2cBus &bus) {
+                                            i2c::EzoDeviceBinding binding;
+                                            i2c::Status bind_status = i2c::bind_ezo_i2c_device(
+                                                bus, static_cast<uint8_t>(spec.address), binding);
+                                            if (!bind_status.is_ok()) {
+                                                return bind_status;
+                                            }
+                                            return reader(&binding.device, level.get());
+                                        });
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = find_active_device_unlocked(g_state.active_devices, device_id);
+    if (it == g_state.active_devices.end()) {
+        return make_status(i2c::StatusCode::NotFound, "unknown device_id");
+    }
+    if (status.is_ok()) {
+        it->calibration_level = *level;
+        it->calibration_level_error.clear();
+    } else {
+        it->calibration_level.reset();
+        it->calibration_level_error = "calibration level unknown: " + status.message;
+    }
+    apply_calibration_level(*it);
     return status;
 }
 

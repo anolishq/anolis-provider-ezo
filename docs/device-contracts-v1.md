@@ -39,6 +39,18 @@ control call but `sleep` does: a rejection (code 2) fails the call.
 Calibrating pH at `mid` clears the low and high points, so a full calibration
 is mid, then low, then high. For a two-point DO calibration, do `zero` first.
 
+### Calibration level
+
+`ph_calibration_level` and `do_calibration_level` report the device's answer to
+`Cal,?`: pH 0 (none), 1 (mid), 2 (mid and low) or 3 (mid, low and high); DO 0,
+1 or 2 points. They are doubles, with no unit, outside the default signal set.
+
+The level is read at startup and again after each successful `calibrate` or
+`clear_calibration`, not on every poll; each sample carries the last value read.
+A level that has not been read, or whose last read failed, is unavailable with
+non-OK quality, never 0, so a failed read after a calibration cannot show the
+level from before it.
+
 ## Function IDs (per-type, contiguous from 1)
 
 Every EZO family exposes the same three control functions, numbered `{1..3}` per
@@ -57,10 +69,10 @@ Adding functions is additive, so `type_version` stays `1`.
 
 | Family | Type ID          | Signal IDs                                                                      | Notes                                                       |
 | ------ | ---------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| pH     | `sensor.ezo.ph`  | `ph_value`                                                                      | scalar                                                      |
+| pH     | `sensor.ezo.ph`  | `ph_value`, `ph_calibration_level`                                              | see calibration level below                                 |
 | ORP    | `sensor.ezo.orp` | `orp_millivolts`                                                                | scalar                                                      |
 | EC     | `sensor.ezo.ec`  | `ec_conductivity_us_cm`, `ec_tds_ppm`, `ec_salinity_psu`, `ec_specific_gravity` | fixed signal set; unavailable outputs return non-OK quality |
-| DO     | `sensor.ezo.do`  | `do_mg_l`, `do_saturation_pct`                                                  | fixed signal set; unavailable outputs return non-OK quality |
+| DO     | `sensor.ezo.do`  | `do_mg_l`, `do_saturation_pct`, `do_calibration_level`                          | fixed signal set; unavailable outputs return non-OK quality |
 | RTD    | `sensor.ezo.rtd` | `rtd_temperature_c`                                                             | scalar                                                      |
 | HUM    | `sensor.ezo.hum` | `hum_relative_humidity_pct`, `hum_temperature_c`, `hum_dew_point_c`             | fixed signal set; unavailable outputs return non-OK quality |
 

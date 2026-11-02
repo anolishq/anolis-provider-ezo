@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "anolis/provider_sdk/host_check.hpp"
@@ -416,13 +417,13 @@ TEST(EzoCadenceWarningTest, AFailedReadBreaksTheStreak) {
     // warning on three unrelated transients: the failure the streak exists to
     // prevent, reached through the one path it did not cover.
     //
-    // drop_after=14&drop_for=1 fails exactly the third refresh below (op counts
-    // are global across both devices and the startup probes; verified by
-    // sweeping the window). Asserting the counter directly rather than waiting
+    // drop_after=18&drop_for=1 fails exactly the third refresh below (op counts
+    // are global across both devices, the startup probes and the startup
+    // calibration-level reads; verified by sweeping the window). Asserting the counter directly rather than waiting
     // for the latch keeps this from depending on the streak length.
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.sample_interval_ms = 1;  // bound floors to 500 ms
-    config.bus_path = "mock://streak-outage?drop_after=14&drop_for=1";
+    config.bus_path = "mock://streak-outage?drop_after=18&drop_for=1";
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(config);
 
@@ -474,8 +475,9 @@ TEST(EzoCadenceWarningTest, IgnoresAGapSpannedByFailedReads) {
     // blind real staleness detection — the very outcome ezo#114 argues against.
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.sample_interval_ms = 1;  // bound floors to 500 ms
-    // Let startup probe/sample succeed, then fail a long run of reads.
-    config.bus_path = "mock://cadence-outage?drop_after=12&drop_for=60";
+    // Let startup probe/sample/calibration-level reads succeed, then fail a
+    // long run of reads.
+    config.bus_path = "mock://cadence-outage?drop_after=16&drop_for=60";
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(config);
 
@@ -794,5 +796,150 @@ TEST(EzoCalibrationTest, CalibrationGetsTheCalibrationWait) {
     auto rt = make_runtime_on("mock://calibrate-wait?sleep_delays=1&pending=Cal:4");
     const auto result = rt.call("do0", anolis_provider_ezo::runtime::kFunctionCalibrate, do_args("atmospheric"));
     EXPECT_TRUE(result.ok) << result.error_message;
+    anolis_provider_ezo::runtime::reset();
+}
+
+namespace {
+
+// The calibration-level signal's value and quality on a device, read the way
+// the runtime polls it.
+struct LevelReading {
+    bool ok = false;
+    bool has_value = false;
+    double value = -1.0;
+    adpp::SignalValue::Quality quality = adpp::SignalValue::QUALITY_UNSPECIFIED;
+    std::string unavailable_reason;
+};
+
+LevelReading read_level(anolis_provider_ezo::EzoProviderRuntime& rt, const std::string& device,
+                        const std::string& signal) {
+    LevelReading out;
+    const auto result = rt.read(device, {signal});
+    out.ok = result.ok;
+    if (!result.ok || result.values.empty()) {
+        return out;
+    }
+    const auto& value = result.values.front();
+    out.has_value = value.value().has_double_value();
+    out.value = value.value().double_value();
+    out.quality = value.quality();
+    if (value.metadata().contains("unavailable_reason")) {
+        out.unavailable_reason = value.metadata().at("unavailable_reason");
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST(EzoCalibrationLevelTest, PhAndDoDeclareTheLevelOutsideTheDefaultSet) {
+    make_ready_runtime();
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+    for (const auto& [device, signal] : {std::pair<std::string, std::string>{"ph0", "ph_calibration_level"},
+                                         std::pair<std::string, std::string>{"do0", "do_calibration_level"}}) {
+        const auto* active = &state.active_devices.front();
+        for (const auto& candidate : state.active_devices) {
+            if (candidate.spec.id == device) {
+                active = &candidate;
+            }
+        }
+        bool declared = false;
+        for (const auto& spec : active->capabilities.signals()) {
+            if (spec.signal_id() == signal) {
+                declared = true;
+                EXPECT_EQ(spec.value_type(), adpp::VALUE_TYPE_DOUBLE) << signal;
+                EXPECT_GT(spec.poll_hint_hz(), 0.0) << signal << ": the runtime polls only signals with a hint";
+            }
+        }
+        EXPECT_TRUE(declared) << device << " declares " << signal;
+        EXPECT_EQ(std::count(active->default_signal_ids.begin(), active->default_signal_ids.end(), signal), 0)
+            << signal << " stays out of the curated default set";
+    }
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationLevelTest, StartupReadsTheLevelAndEverySampleKeepsIt) {
+    auto rt = make_runtime_on("mock://cal-start?cal=2");
+    for (int poll = 0; poll < 3; ++poll) {
+        // A fresh sample each time, as a poll past the cache-reuse window gets:
+        // the level must survive the sample replacing the cache.
+        ASSERT_TRUE(anolis_provider_ezo::runtime::refresh_device_sample("ph0").is_ok());
+        const LevelReading ph = read_level(rt, "ph0", "ph_calibration_level");
+        ASSERT_TRUE(ph.ok);
+        EXPECT_TRUE(ph.has_value) << "poll " << poll;
+        EXPECT_DOUBLE_EQ(ph.value, 2.0) << "poll " << poll;
+        EXPECT_EQ(ph.quality, adpp::SignalValue::QUALITY_OK) << "poll " << poll;
+    }
+    const LevelReading dox = read_level(rt, "do0", "do_calibration_level");
+    EXPECT_TRUE(dox.has_value);
+    EXPECT_DOUBLE_EQ(dox.value, 2.0);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationLevelTest, EachCalibrationOrClearUpdatesTheLevel) {
+    auto rt = make_runtime_on("mock://cal-update");
+    const auto calibrate = anolis_provider_ezo::runtime::kFunctionCalibrate;
+    const auto clear = anolis_provider_ezo::runtime::kFunctionClearCalibration;
+    EXPECT_DOUBLE_EQ(read_level(rt, "ph0", "ph_calibration_level").value, 0.0);
+
+    ASSERT_TRUE(rt.call("ph0", calibrate, ph_args("mid", 7.0)).ok);
+    EXPECT_DOUBLE_EQ(read_level(rt, "ph0", "ph_calibration_level").value, 1.0);
+    ASSERT_TRUE(rt.call("ph0", calibrate, ph_args("low", 4.0)).ok);
+    EXPECT_DOUBLE_EQ(read_level(rt, "ph0", "ph_calibration_level").value, 2.0);
+    ASSERT_TRUE(rt.call("ph0", calibrate, ph_args("high", 10.0)).ok);
+    EXPECT_DOUBLE_EQ(read_level(rt, "ph0", "ph_calibration_level").value, 3.0);
+    ASSERT_TRUE(rt.call("ph0", clear, {}).ok);
+    EXPECT_DOUBLE_EQ(read_level(rt, "ph0", "ph_calibration_level").value, 0.0);
+
+    ASSERT_TRUE(rt.call("do0", calibrate, do_args("zero")).ok);
+    EXPECT_DOUBLE_EQ(read_level(rt, "do0", "do_calibration_level").value, 1.0);
+    ASSERT_TRUE(rt.call("do0", calibrate, do_args("atmospheric")).ok);
+    EXPECT_DOUBLE_EQ(read_level(rt, "do0", "do_calibration_level").value, 2.0);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationLevelTest, ARejectedCalibrationLeavesTheLevel) {
+    auto rt = make_runtime_on("mock://cal-reject?cal=3&status=Cal,mid,7.00:2");
+    EXPECT_FALSE(rt.call("ph0", anolis_provider_ezo::runtime::kFunctionCalibrate, ph_args("mid", 7.0)).ok);
+    const LevelReading ph = read_level(rt, "ph0", "ph_calibration_level");
+    EXPECT_TRUE(ph.has_value);
+    EXPECT_DOUBLE_EQ(ph.value, 3.0);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationLevelTest, ALevelTheDeviceWillNotReportIsUnavailableNotZero) {
+    auto rt = make_runtime_on("mock://cal-unreadable?cal=3&status=Cal,?:2");
+    const LevelReading ph = read_level(rt, "ph0", "ph_calibration_level");
+    ASSERT_TRUE(ph.ok);
+    EXPECT_FALSE(ph.has_value);
+    EXPECT_NE(ph.quality, adpp::SignalValue::QUALITY_OK);
+    EXPECT_NE(ph.unavailable_reason.find("calibration level"), std::string::npos) << ph.unavailable_reason;
+    // The measurement itself is unaffected.
+    const auto value = rt.read("ph0", {"ph_value"});
+    ASSERT_TRUE(value.ok);
+    EXPECT_EQ(value.values.front().quality(), adpp::SignalValue::QUALITY_OK);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCalibrationLevelTest, AFailedReadAfterACalibrationNeverShowsTheOldLevel) {
+    // The device starts at level 3; a mid calibration moves it to 1. Sweep a
+    // two-operation bus fault across the call so that, at some offset, the
+    // calibration succeeds and the Cal,? read after it fails. Wherever the call
+    // succeeds, the level must be the new one or unavailable: never the 3 from
+    // before, which would tell an operator the probe kept a calibration it lost.
+    int unavailable_after_success = 0;
+    for (int drop_after = 0; drop_after < 40; ++drop_after) {
+        auto rt = make_runtime_on("mock://cal-stale?cal=3&drop_for=2&drop_after=" + std::to_string(drop_after));
+        const auto call = rt.call("ph0", anolis_provider_ezo::runtime::kFunctionCalibrate, ph_args("mid", 7.0));
+        if (!call.ok) {
+            continue;
+        }
+        const LevelReading ph = read_level(rt, "ph0", "ph_calibration_level");
+        if (ph.has_value) {
+            EXPECT_DOUBLE_EQ(ph.value, 1.0) << "drop_after=" << drop_after;
+        } else {
+            ++unavailable_after_success;
+        }
+    }
+    EXPECT_GT(unavailable_after_success, 0) << "no offset failed the read after a successful calibration";
     anolis_provider_ezo::runtime::reset();
 }

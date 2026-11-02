@@ -13,7 +13,11 @@ namespace {
 
 constexpr SignalDefinition kSignals[] = {
     {"ph_value", "pH", "Latest pH measurement", "pH", true},
+    {"ph_calibration_level", "pH calibration level",
+     "Points calibrated on the device, from Cal,?: 0 none, 1 mid, 2 mid and low, 3 mid, low and high", "", false},
 };
+
+constexpr int kCalibrationLevelSignal = 1;
 
 i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out) {
     initialize_signal_samples(kSignals, std::size(kSignals), out);
@@ -33,8 +37,26 @@ i2c::Status read_sample(ezo_i2c_device_t *device, std::vector<SignalSample> &out
     return i2c::Status::ok();
 }
 
+i2c::Status read_calibration_level(ezo_i2c_device_t *device, double *level_out) {
+    ezo_timing_hint_t hint{};
+    ezo_result_t result = ezo_ph_send_calibration_query_i2c(device, &hint);
+    if (result != EZO_OK) {
+        return status_from_ezo_result(result, "send pH calibration query");
+    }
+    wait_for_timing_hint(device, hint);
+    ezo_ph_calibration_status_t status{};
+    result = ezo_ph_read_calibration_status_i2c(device, &status);
+    if (result != EZO_OK) {
+        return status_from_ezo_result(result, "read pH calibration status");
+    }
+    *level_out = static_cast<double>(status.level);
+    return i2c::Status::ok();
+}
+
 }  // namespace
 
-const DeviceAdapter kAdapter{EZO_PRODUCT_PH, "sensor.ezo.ph", kSignals, std::size(kSignals), &read_sample};
+const DeviceAdapter kAdapter{EZO_PRODUCT_PH,         "sensor.ezo.ph", kSignals,
+                             std::size(kSignals),    &read_sample,    kCalibrationLevelSignal,
+                             &read_calibration_level};
 
 }  // namespace anolis_provider_ezo::devices::ph
