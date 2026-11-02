@@ -4,6 +4,13 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-01
+
+0.5.0 is a minor release: control calls now fail when the device rejects a
+command instead of reporting success, and the new calibration functions rely
+on runtime 0.6.0 or later to refuse them outside MANUAL. The config schema
+changes only a description.
+
 ### Added
 
 - **pH and DO calibration** (#90). `sensor.ezo.ph` and `sensor.ezo.do` declare
