@@ -5,6 +5,7 @@
 
 #include "i2c/ezo_canned_bus.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -149,6 +150,8 @@ CannedOptions CannedOptions::parse(const std::string &query) {
                 options.pending_command = value.substr(0, colon);
                 options.pending_reads = static_cast<uint32_t>(std::strtoul(value.c_str() + colon + 1, nullptr, 10));
             }
+        } else if (key == "cal") {
+            options.calibration_level = static_cast<uint32_t>(std::strtoul(value.c_str(), nullptr, 10));
         }
     }
     return options;
@@ -177,6 +180,7 @@ EzoCannedBus::DeviceState &EzoCannedBus::state_for(uint8_t address) {
     if (it == devices_.end()) {
         DeviceState st;
         st.family = family_for_address(address);
+        st.calibration_level = options_.calibration_level;
         it = devices_.emplace(address, st).first;
     }
     return it->second;
@@ -192,6 +196,9 @@ std::string EzoCannedBus::response_payload(uint8_t address, DeviceState &state, 
     if (command == "r" || starts_with(command, "rt,")) {
         return read_payload(state.family, address, state.read_seq++);
     }
+    if (command == "Cal,?") {
+        return "?Cal," + std::to_string(state.calibration_level);
+    }
     // Control commands (Find / L,n) answer with a bare status frame.
     return "";
 }
@@ -199,6 +206,27 @@ std::string EzoCannedBus::response_payload(uint8_t address, DeviceState &state, 
 void EzoCannedBus::record_command(DeviceState &state, const uint8_t *tx_data, size_t tx_len) {
     state.last_command.assign(reinterpret_cast<const char *>(tx_data), tx_len);
     state.pending_left = state.last_command == options_.pending_command ? options_.pending_reads : 0;
+    // A calibration the device accepts moves the level Cal,? reports, as the
+    // datasheets describe: pH counts mid, low and high (mid clears the other
+    // two); DO counts its points, up to two. A command answered with an error
+    // code (status=) leaves it.
+    const std::string &cmd = state.last_command;
+    if (cmd == options_.status_command || !starts_with(cmd, "Cal") || cmd == "Cal,?") {
+        return;
+    }
+    if (cmd == "Cal,clear") {
+        state.calibration_level = 0;
+    } else if (state.family == CannedFamily::Ph) {
+        if (starts_with(cmd, "Cal,mid,")) {
+            state.calibration_level = 1;
+        } else if (starts_with(cmd, "Cal,low,")) {
+            state.calibration_level = 2;
+        } else if (starts_with(cmd, "Cal,high,")) {
+            state.calibration_level = 3;
+        }
+    } else if (state.family == CannedFamily::Do) {
+        state.calibration_level = std::min<uint32_t>(state.calibration_level + 1, 2);
+    }
 }
 
 I2cStatus EzoCannedBus::answer_read(uint8_t address, DeviceState &state, uint8_t *rx_data, size_t rx_len,

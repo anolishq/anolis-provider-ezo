@@ -720,6 +720,16 @@ sdk::AdapterCallResult EzoProviderRuntime::call(const std::string& device_id, ui
     }
 
     runtime::record_call_result(device_id, function_spec->name(), true, "");
+    // A calibration changes the level the device reports; read it now so the
+    // next read shows it, not the level from before (#145). The call itself
+    // succeeded, so a failed read leaves the level unknown, not the call failed.
+    if (function_id == runtime::kFunctionCalibrate || function_id == runtime::kFunctionClearCalibration) {
+        const i2c::Status level_status = runtime::refresh_calibration_level(device_id);
+        if (!level_status.is_ok()) {
+            logging::warning("calibration-level read after '" + function_spec->name() + "' failed for device '" +
+                             device_id + "': " + level_status.message);
+        }
+    }
     return result;
 }
 

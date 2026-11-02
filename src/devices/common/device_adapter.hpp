@@ -34,6 +34,12 @@ struct DeviceAdapter {
     const SignalDefinition *signals;
     std::size_t signal_count;
     i2c::Status (*read_sample)(ezo_i2c_device_t *device, std::vector<SignalSample> &out);
+    // The calibration-level signal's index in `signals`, and the `Cal,?` reader
+    // that fills it (#145). The level only changes when the device is
+    // calibrated, so it is read at startup and after each calibration rather
+    // than on every poll. -1 and nullptr for families without calibration.
+    int calibration_level_signal = -1;
+    i2c::Status (*read_calibration_level)(ezo_i2c_device_t *device, double *level_out) = nullptr;
 };
 
 /** @brief The adapter for a device family. Exhaustive over EzoDeviceType. */
