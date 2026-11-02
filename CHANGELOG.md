@@ -4,6 +4,8 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-02
+
 ### Added
 
 - **pH and DO calibration level** (#145, for #90). `sensor.ezo.ph` declares
