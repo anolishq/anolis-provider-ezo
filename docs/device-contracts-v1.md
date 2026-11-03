@@ -51,6 +51,57 @@ A level that has not been read, or whose last read failed, is unavailable with
 non-OK quality, never 0, so a failed read after a calibration cannot show the
 level from before it.
 
+## Compensation (pH and DO)
+
+pH and DO readings depend on the solution's temperature, and DO also on its
+salinity and the air pressure. A probe compensates for the values it holds:
+pH 25 C; DO 20 C, salinity 0 and 101.3 kPa, until they are set. The probes
+lose them when they lose power, and keep their calibration.
+
+`set_compensation` (function 6) sets them. It is `CATEGORY_CONFIG` and
+idempotent, and declares no `allowed_modes`, so an automation can set it from a
+run's parameters as well as an operator in MANUAL.
+
+| Family | Args (doubles; an optional one is sent only when given)                                          | Device commands                             |
+| ------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| pH     | `temperature_c` (0 to 100, required)                                                             | `T,n` (2 decimals)                          |
+| DO     | `temperature_c` (0 to 100, required), `salinity_us_cm` (0 to 100000), `pressure_kpa` (10 to 300) | `T,n`, `S,n,uS` (1 decimal), `P,n` (2 dec.) |
+
+As for calibration, arguments are checked before any bus work: an unknown,
+missing or non-finite arg is `INVALID_ARGUMENT` and a value out of range is
+`OUT_OF_RANGE`. Each command's response code is read, and the first one the
+probe rejects fails the call and stops the rest.
+
+### Compensation signals
+
+`ph_temperature_compensation_c`, `do_temperature_compensation_c`,
+`do_salinity_compensation_us_cm` and `do_pressure_compensation_kpa` report what
+the probe answers to `T,?`, `S,?` and `P,?`: what it holds, not what was asked
+for. They are outside the default signal set. They are read at startup, after
+each `set_compensation` and DO `calibrate`, and every 24th sample (about once a
+minute at the default 2500 ms interval); each sample carries the last values
+read. A value not read yet, or whose last read failed, is unavailable, never a
+default. A DO probe that reports salinity in ppt shows the salinity signal
+unavailable, since ppt does not convert to uS/cm without the solution's makeup;
+setting salinity switches the probe to uS/cm.
+
+### After a power cut
+
+When a check finds the probe no longer holds a value set through
+`set_compensation`, the provider sends the set values again, logs a warning and
+counts it in the device health metric `compensation_reapplied_count`. The set
+values live in the provider's memory only. After a provider restart the signals
+show what the probe holds, which it keeps unless it lost power too, and nothing
+is re-sent until `set_compensation` is called again.
+
+### DO calibration
+
+The DO datasheet calibrates at the default compensation. DO `calibrate` sets
+20 C, salinity 0 and 101.3 kPa, calibrates, then sends back the values set
+through `set_compensation`, or else those the probe held before. If the probe
+refuses the defaults, the calibration is not sent and the call fails. pH
+`calibrate` is unchanged.
+
 ## Function IDs (per-type, contiguous from 1)
 
 Every EZO family exposes the same three control functions, numbered `{1..3}` per
@@ -60,21 +111,21 @@ the Anolis executable profile (§5):
 2. `2` -> `set_led`
 3. `3` -> `sleep`
 
-pH and DO continue the numbering with `4` -> `calibrate` and
-`5` -> `clear_calibration`.
+pH and DO continue the numbering with `4` -> `calibrate`,
+`5` -> `clear_calibration` and `6` -> `set_compensation`.
 
 Adding functions is additive, so `type_version` stays `1`.
 
 ## Signal table
 
-| Family | Type ID          | Signal IDs                                                                      | Notes                                                       |
-| ------ | ---------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| pH     | `sensor.ezo.ph`  | `ph_value`, `ph_calibration_level`                                              | see calibration level below                                 |
-| ORP    | `sensor.ezo.orp` | `orp_millivolts`                                                                | scalar                                                      |
-| EC     | `sensor.ezo.ec`  | `ec_conductivity_us_cm`, `ec_tds_ppm`, `ec_salinity_psu`, `ec_specific_gravity` | fixed signal set; unavailable outputs return non-OK quality |
-| DO     | `sensor.ezo.do`  | `do_mg_l`, `do_saturation_pct`, `do_calibration_level`                          | fixed signal set; unavailable outputs return non-OK quality |
-| RTD    | `sensor.ezo.rtd` | `rtd_temperature_c`                                                             | scalar                                                      |
-| HUM    | `sensor.ezo.hum` | `hum_relative_humidity_pct`, `hum_temperature_c`, `hum_dew_point_c`             | fixed signal set; unavailable outputs return non-OK quality |
+| Family | Type ID          | Signal IDs                                                                                                                                                | Notes                                                       |
+| ------ | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| pH     | `sensor.ezo.ph`  | `ph_value`, `ph_calibration_level`, `ph_temperature_compensation_c`                                                                                       | see calibration level and compensation above                |
+| ORP    | `sensor.ezo.orp` | `orp_millivolts`                                                                                                                                          | scalar                                                      |
+| EC     | `sensor.ezo.ec`  | `ec_conductivity_us_cm`, `ec_tds_ppm`, `ec_salinity_psu`, `ec_specific_gravity`                                                                           | fixed signal set; unavailable outputs return non-OK quality |
+| DO     | `sensor.ezo.do`  | `do_mg_l`, `do_saturation_pct`, `do_calibration_level`, `do_temperature_compensation_c`, `do_salinity_compensation_us_cm`, `do_pressure_compensation_kpa` | fixed signal set; unavailable outputs return non-OK quality |
+| RTD    | `sensor.ezo.rtd` | `rtd_temperature_c`                                                                                                                                       | scalar                                                      |
+| HUM    | `sensor.ezo.hum` | `hum_relative_humidity_pct`, `hum_temperature_c`, `hum_dew_point_c`                                                                                       | fixed signal set; unavailable outputs return non-OK quality |
 
 ## Quality policy
 

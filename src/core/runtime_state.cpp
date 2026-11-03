@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -181,6 +182,41 @@ void add_calibration_function_specs(anolis::deviceprovider::v1::CapabilitySet &c
     add_result_spec(clear_fn, "accepted", kValueTypeBool, "true when the device accepts the command");
 }
 
+ArgSpec *add_bounded_double_arg(FunctionSpec *function, const char *name, const char *description, const char *unit,
+                                double min, double max, bool required) {
+    ArgSpec *arg = add_arg_spec(function, name, kValueTypeDouble, description, required);
+    arg->set_unit(unit);
+    arg->set_min_double(min);
+    arg->set_max_double(max);
+    return arg;
+}
+
+// Compensation (#146). Not MANUAL-only: an automation sets it from a run's
+// parameters. Temperature is required, as the value that changes run to run;
+// salinity and pressure are sent when given and otherwise stay as they are.
+void add_compensation_function_specs(anolis::deviceprovider::v1::CapabilitySet &caps, EzoDeviceType type) {
+    if (type != EzoDeviceType::Ph && type != EzoDeviceType::Do) {
+        return;
+    }
+    const bool ph = type == EzoDeviceType::Ph;
+    FunctionSpec *fn = add_function_spec(
+        caps, kFunctionSetCompensation, "set_compensation",
+        ph ? "Set the temperature the probe compensates its readings for. The probe forgets it when it loses power; "
+             "the provider sends it again when it finds it lost."
+           : "Set the temperature, and optionally the salinity and pressure, the probe compensates its readings for. "
+             "The probe forgets them when it loses power; the provider sends them again when it finds them lost.",
+        kCategoryConfig, true);
+    add_bounded_double_arg(fn, "temperature_c", "Temperature of the solution", "C", devices::kMinTemperatureC,
+                           devices::kMaxTemperatureC, true);
+    if (!ph) {
+        add_bounded_double_arg(fn, "salinity_us_cm", "Salinity of the solution, as conductivity", "uS/cm",
+                               devices::kMinSalinityUsCm, devices::kMaxSalinityUsCm, false);
+        add_bounded_double_arg(fn, "pressure_kpa", "Atmospheric pressure", "kPa", devices::kMinPressureKpa,
+                               devices::kMaxPressureKpa, false);
+    }
+    add_result_spec(fn, "accepted", kValueTypeBool, "true when the device accepts every value sent");
+}
+
 std::unique_ptr<i2c::I2cBus> make_bus(const ProviderConfig &config) {
     if (is_mock_mode(config)) {
         // Mock runs the real driver command/parse path against a canned EZO
@@ -227,6 +263,7 @@ anolis::deviceprovider::v1::CapabilitySet build_capabilities(const ProviderConfi
     }
     add_safe_function_specs(capabilities);
     add_calibration_function_specs(capabilities, type);
+    add_compensation_function_specs(capabilities, type);
     return capabilities;
 }
 
@@ -338,6 +375,47 @@ void apply_calibration_level(ActiveDevice &device) {
         slot.unavailable_reason =
             device.calibration_level_error.empty() ? "calibration level not read yet" : device.calibration_level_error;
     }
+}
+
+// Like the calibration level, compensation is read on demand and written into
+// every new sample (#146). A value never read, or whose last read failed, is
+// unavailable rather than the default.
+void apply_compensation(ActiveDevice &device) {
+    const devices::DeviceAdapter &adapter = devices::adapter_for(device.spec.type);
+    auto fill = [&device](int signal, const std::optional<double> &value, const std::string &missing) {
+        if (signal < 0 || static_cast<size_t>(signal) >= device.sample.signals.size()) {
+            return;
+        }
+        if (value) {
+            devices::set_signal_value(device.sample.signals, static_cast<size_t>(signal), *value);
+        } else {
+            devices::set_signal_unavailable(device.sample.signals, static_cast<size_t>(signal), missing);
+        }
+    };
+    const std::string unknown =
+        device.compensation_error.empty() ? "compensation not read yet" : device.compensation_error;
+    const devices::CompensationReading &read = device.compensation_read;
+    fill(adapter.temperature_compensation_signal, read.values.temperature_c, unknown);
+    fill(adapter.salinity_compensation_signal, read.values.salinity_us_cm,
+         read.salinity_unavailable.empty() ? unknown : read.salinity_unavailable);
+    fill(adapter.pressure_compensation_signal, read.values.pressure_kpa, unknown);
+}
+
+// A value the probe still holds can read back rounded: to one decimal for
+// temperature and pressure, to a whole number for salinity. Anything further
+// off is a value it has lost. Too tight, and every check would send it again.
+constexpr double kTemperatureTolerance = 0.06;
+constexpr double kSalinityTolerance = 1.0;
+constexpr double kPressureTolerance = 0.06;
+
+bool holds(const std::optional<double> &set, const std::optional<double> &read, double tolerance) {
+    return !set || (read && std::abs(*set - *read) <= tolerance);
+}
+
+bool holds_all(const devices::Compensation &set, const devices::Compensation &read) {
+    return holds(set.temperature_c, read.temperature_c, kTemperatureTolerance) &&
+           holds(set.salinity_us_cm, read.salinity_us_cm, kSalinityTolerance) &&
+           holds(set.pressure_kpa, read.pressure_kpa, kPressureTolerance);
 }
 
 std::string build_startup_message(const RuntimeState &state) {
@@ -515,6 +593,11 @@ void initialize(const ProviderConfig &config) {
             logging::warning(std::format("startup calibration-level read failed for device '{}': {}", device_id,
                                          level_status.message));
         }
+        const i2c::Status compensation_status = check_compensation(device_id);
+        if (!compensation_status.is_ok()) {
+            logging::warning(std::format("startup compensation read failed for device '{}': {}", device_id,
+                                         compensation_status.message));
+        }
     }
 }
 
@@ -613,6 +696,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     // while holding g_mutex would stall every snapshot, health query and job
     // submission in the provider.
     std::string cadence_warning;
+    bool compensation_due = false;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         auto it = find_active_device_unlocked(g_state.active_devices, device_id);
@@ -664,6 +748,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             }
             it->sample.signals = std::move(*new_signals);
             apply_calibration_level(*it);
+            apply_compensation(*it);
             it->sample.sampled_at = now;
             it->sample.sampled_at_steady = now_steady;
             it->sample.has_sample = true;
@@ -671,6 +756,7 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
             it->sample.last_error.clear();
             ++it->sample.success_count;
             ++it->sample.sequence;
+            compensation_due = it->sample.success_count % kCompensationCheckEvery == 0;
         } else {
             it->sample.last_read_ok = false;
             it->sample.last_error = status.message;
@@ -687,6 +773,14 @@ i2c::Status refresh_device_sample(const std::string &device_id) {
     }
     if (!cadence_warning.empty()) {
         logging::warning(cadence_warning);
+    }
+    // A probe that lost power has lost its compensation and says nothing
+    // about it, so the provider looks: about once a minute (#146).
+    if (compensation_due) {
+        const i2c::Status check = check_compensation(device_id);
+        if (!check.is_ok()) {
+            logging::warning(std::format("compensation check failed for device '{}': {}", device_id, check.message));
+        }
     }
     return status;
 }
@@ -736,6 +830,102 @@ i2c::Status refresh_calibration_level(const std::string &device_id) {
     }
     apply_calibration_level(*it);
     return status;
+}
+
+i2c::Status check_compensation(const std::string &device_id) {
+    ProviderConfig config;
+    DeviceSpec spec;
+    devices::Compensation set;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        auto it = find_active_device_unlocked(g_state.active_devices, device_id);
+        if (it == g_state.active_devices.end()) {
+            return make_status(i2c::StatusCode::NotFound, "unknown device_id");
+        }
+        config = g_state.config;
+        spec = it->spec;
+        set = it->compensation_set;
+    }
+    const devices::DeviceAdapter &adapter = devices::adapter_for(spec.type);
+    const auto reader = adapter.read_compensation;
+    const auto writer = adapter.write_compensation;
+    if (reader == nullptr || writer == nullptr) {
+        return i2c::Status::ok();
+    }
+
+    // Read; if a set value is gone, send the set values and read again. One
+    // job, so no other command lands between the read and the re-send.
+    struct Outcome {
+        devices::CompensationReading reading;
+        bool reapplied = false;
+    };
+    auto outcome = std::make_shared<Outcome>();
+    // Up to nine commands: three queries, three sets and the three queries again.
+    const int timeout_ms = std::max(config.timeout_ms, 9 * query_latency_ms(config) + 1500);
+    i2c::Status status = submit_i2c_job(
+        "compensation:" + device_id, std::chrono::milliseconds(timeout_ms),
+        [outcome, spec, set, reader, writer](i2c::I2cBus &bus) {
+            i2c::EzoDeviceBinding binding;
+            i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, static_cast<uint8_t>(spec.address), binding);
+            if (!bind_status.is_ok()) {
+                return bind_status;
+            }
+            i2c::Status read_status = reader(&binding.device, &outcome->reading);
+            if (!read_status.is_ok() || holds_all(set, outcome->reading.values)) {
+                return read_status;
+            }
+            const i2c::Status write_status = writer(&binding.device, set);
+            if (!write_status.is_ok()) {
+                return make_status(write_status.code,
+                                   "probe lost its compensation and sending it again failed: " + write_status.message);
+            }
+            outcome->reapplied = true;
+            return reader(&binding.device, &outcome->reading);
+        });
+
+    bool reapplied = false;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        auto it = find_active_device_unlocked(g_state.active_devices, device_id);
+        if (it == g_state.active_devices.end()) {
+            return make_status(i2c::StatusCode::NotFound, "unknown device_id");
+        }
+        if (status.is_ok()) {
+            it->compensation_read = outcome->reading;
+            it->compensation_error.clear();
+        } else {
+            it->compensation_read = devices::CompensationReading{};
+            it->compensation_error = "compensation unknown: " + status.message;
+        }
+        if (outcome->reapplied) {
+            ++it->compensation_reapplied_count;
+            reapplied = true;
+        }
+        apply_compensation(*it);
+    }
+    if (reapplied) {
+        logging::warning(std::format(
+            "device '{}' had lost its compensation, as after a power cut; sent the set values again", device_id));
+    }
+    return status;
+}
+
+void remember_compensation(const std::string &device_id, const devices::Compensation &values) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = find_active_device_unlocked(g_state.active_devices, device_id);
+    if (it == g_state.active_devices.end()) {
+        return;
+    }
+    devices::Compensation &set = it->compensation_set;
+    if (values.temperature_c) {
+        set.temperature_c = values.temperature_c;
+    }
+    if (values.salinity_us_cm) {
+        set.salinity_us_cm = values.salinity_us_cm;
+    }
+    if (values.pressure_kpa) {
+        set.pressure_kpa = values.pressure_kpa;
+    }
 }
 
 void record_call_result(const std::string &device_id, const std::string &function_name, bool ok,

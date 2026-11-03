@@ -38,6 +38,47 @@ i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &conte
     return make_status(i2c::StatusCode::Internal, context + ": " + ezo_result_name(result));
 }
 
+namespace {
+
+// A device that answers 254 (still processing) is read again this many times,
+// this far apart, before the command fails (#144).
+constexpr int kPendingRereads = 4;
+constexpr uint32_t kPendingRereadMs = 250;
+
+}  // namespace
+
+i2c::Status read_command_response(ezo_i2c_device_t *device) {
+    for (int reread = 0;; ++reread) {
+        char buffer[32] = {};
+        size_t response_len = 0;
+        ezo_device_status_t device_status = EZO_STATUS_UNKNOWN;
+        const ezo_result_t result = ezo_read_response(device, buffer, sizeof(buffer), &response_len, &device_status);
+        if (result != EZO_OK) {
+            return status_from_ezo_result(result, "read command response");
+        }
+        switch (device_status) {
+            case EZO_STATUS_SUCCESS:
+                return i2c::Status::ok();
+            case EZO_STATUS_FAIL:
+                return make_status(i2c::StatusCode::Internal,
+                                   "device rejected the command (response code 2, syntax error)");
+            case EZO_STATUS_NOT_READY:
+                if (reread < kPendingRereads) {
+                    wait_for_timing_hint(device, ezo_timing_hint_t{kPendingRereadMs});
+                    continue;
+                }
+                return make_status(i2c::StatusCode::Unavailable,
+                                   "device still processing the command (response code 254)");
+            case EZO_STATUS_NO_DATA:
+                return make_status(i2c::StatusCode::Unavailable,
+                                   "device returned no data for the command (response code 255)");
+            case EZO_STATUS_UNKNOWN:
+                break;
+        }
+        return make_status(i2c::StatusCode::Internal, "device returned an unknown response code");
+    }
+}
+
 void set_signal_value(std::vector<SignalSample> &signals, std::size_t index, double value) {
     if (index >= signals.size()) {
         return;

@@ -417,13 +417,13 @@ TEST(EzoCadenceWarningTest, AFailedReadBreaksTheStreak) {
     // warning on three unrelated transients: the failure the streak exists to
     // prevent, reached through the one path it did not cover.
     //
-    // drop_after=18&drop_for=1 fails exactly the third refresh below (op counts
-    // are global across both devices, the startup probes and the startup
-    // calibration-level reads; verified by sweeping the window). Asserting the counter directly rather than waiting
-    // for the latch keeps this from depending on the streak length.
+    // drop_after=26&drop_for=1 fails exactly the third refresh below (op counts
+    // are global across both devices, the startup probes, and the startup
+    // calibration-level and compensation reads; verified by sweeping the window). Asserting the counter directly rather
+    // than waiting for the latch keeps this from depending on the streak length.
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.sample_interval_ms = 1;  // bound floors to 500 ms
-    config.bus_path = "mock://streak-outage?drop_after=18&drop_for=1";
+    config.bus_path = "mock://streak-outage?drop_after=26&drop_for=1";
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(config);
 
@@ -475,9 +475,9 @@ TEST(EzoCadenceWarningTest, IgnoresAGapSpannedByFailedReads) {
     // blind real staleness detection — the very outcome ezo#114 argues against.
     anolis_provider_ezo::ProviderConfig config = make_mock_config();
     config.sample_interval_ms = 1;  // bound floors to 500 ms
-    // Let startup probe/sample/calibration-level reads succeed, then fail a
-    // long run of reads.
-    config.bus_path = "mock://cadence-outage?drop_after=16&drop_for=60";
+    // Let startup probe/sample/calibration-level/compensation reads succeed,
+    // then fail a long run of reads.
+    config.bus_path = "mock://cadence-outage?drop_after=24&drop_for=60";
     anolis_provider_ezo::runtime::reset();
     anolis_provider_ezo::runtime::initialize(config);
 
@@ -941,5 +941,290 @@ TEST(EzoCalibrationLevelTest, AFailedReadAfterACalibrationNeverShowsTheOldLevel)
         }
     }
     EXPECT_GT(unavailable_after_success, 0) << "no offset failed the read after a successful calibration";
+    anolis_provider_ezo::runtime::reset();
+}
+
+// Temperature, salinity and pressure compensation (#146): set_compensation
+// sets it, the compensation signals report what the probe itself says, and a
+// probe that loses it in a power cut gets it back.
+namespace {
+
+namespace rt_ns = anolis_provider_ezo::runtime;
+
+google::protobuf::Map<std::string, adpp::Value> comp_args(
+    std::initializer_list<std::pair<const char*, double>> values) {
+    google::protobuf::Map<std::string, adpp::Value> args;
+    for (const auto& [name, value] : values) {
+        args[name] = double_value(value);
+    }
+    return args;
+}
+
+double comp_value(anolis_provider_ezo::EzoProviderRuntime& rt, const std::string& device, const std::string& signal) {
+    const LevelReading reading = read_level(rt, device, signal);
+    EXPECT_TRUE(reading.ok) << signal;
+    EXPECT_TRUE(reading.has_value) << signal << ": " << reading.unavailable_reason;
+    return reading.value;
+}
+
+const anolis_provider_ezo::runtime::ActiveDevice* active(const anolis_provider_ezo::runtime::RuntimeState& state,
+                                                         const std::string& id) {
+    for (const auto& device : state.active_devices) {
+        if (device.spec.id == id) {
+            return &device;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+TEST(EzoCompensationTest, PhAndDoDeclareSetCompensationAndItsSignals) {
+    anolis_provider_ezo::ProviderConfig config = make_mock_config();
+    config.devices.push_back(
+        anolis_provider_ezo::DeviceSpec{"rtd0", anolis_provider_ezo::EzoDeviceType::Rtd, "Tank temp", 0x66});
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+    const auto state = anolis_provider_ezo::runtime::snapshot();
+
+    EXPECT_EQ(function_named(*active(state, "rtd0"), "set_compensation"), nullptr);
+
+    struct Expected {
+        const char* device;
+        std::vector<std::string> args;
+        std::vector<std::string> signals;
+    };
+    for (const auto& e : {Expected{"ph0", {"temperature_c"}, {"ph_temperature_compensation_c"}},
+                          Expected{"do0",
+                                   {"temperature_c", "salinity_us_cm", "pressure_kpa"},
+                                   {"do_temperature_compensation_c", "do_salinity_compensation_us_cm",
+                                    "do_pressure_compensation_kpa"}}}) {
+        const auto* device = active(state, e.device);
+        ASSERT_NE(device, nullptr);
+        const auto* fn = function_named(*device, "set_compensation");
+        ASSERT_NE(fn, nullptr) << e.device;
+        EXPECT_EQ(fn->function_id(), rt_ns::kFunctionSetCompensation);
+        EXPECT_EQ(fn->policy().category(), adpp::FunctionPolicy_Category_CATEGORY_CONFIG);
+        // Automation sets it from a run's parameters, so it is not MANUAL-only.
+        EXPECT_EQ(fn->policy().allowed_modes_size(), 0) << e.device;
+        std::vector<std::string> names;
+        for (const auto& arg : fn->args()) {
+            names.push_back(arg.name());
+            EXPECT_TRUE(arg.has_min_double() && arg.has_max_double()) << arg.name();
+            EXPECT_FALSE(arg.unit().empty()) << arg.name();
+            // Temperature is required; DO's salinity and pressure are not.
+            EXPECT_EQ(arg.required(), arg.name() == "temperature_c") << arg.name();
+        }
+        EXPECT_EQ(names, e.args);
+
+        for (const auto& signal : e.signals) {
+            bool declared = false;
+            for (const auto& spec : device->capabilities.signals()) {
+                if (spec.signal_id() == signal) {
+                    declared = true;
+                    EXPECT_FALSE(spec.unit().empty()) << signal;
+                    EXPECT_GT(spec.poll_hint_hz(), 0.0) << signal;
+                }
+            }
+            EXPECT_TRUE(declared) << signal;
+            EXPECT_EQ(std::count(device->default_signal_ids.begin(), device->default_signal_ids.end(), signal), 0)
+                << signal;
+        }
+    }
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, StartupReportsWhatTheProbeHolds) {
+    auto rt = make_runtime_on("mock://comp-start");
+    EXPECT_DOUBLE_EQ(comp_value(rt, "ph0", "ph_temperature_compensation_c"), 25.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 20.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_salinity_compensation_us_cm"), 0.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_pressure_compensation_kpa"), 101.3);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, SetCompensationSendsTheDatasheetCommands) {
+    // Each case's device rejects exactly the command it should send.
+    struct Case {
+        const char* device;
+        google::protobuf::Map<std::string, adpp::Value> args;
+        const char* command;
+    };
+    const std::vector<Case> cases = {
+        {"ph0", comp_args({{"temperature_c", 37.0}}), "T,37.00"},
+        {"do0", comp_args({{"temperature_c", 30.5}}), "T,30.50"},
+        {"do0", comp_args({{"temperature_c", 30.5}, {"salinity_us_cm", 5000.0}}), "S,5000.0,uS"},
+        {"do0", comp_args({{"temperature_c", 30.5}, {"pressure_kpa", 95.25}}), "P,95.25"},
+    };
+    for (const auto& c : cases) {
+        auto accepting = make_runtime_on("mock://comp-ok");
+        const auto ok = accepting.call(c.device, rt_ns::kFunctionSetCompensation, c.args);
+        EXPECT_TRUE(ok.ok) << c.command << ": " << ok.error_message;
+
+        auto rejecting = make_runtime_on(std::string("mock://comp-reject?status=") + c.command + ":2");
+        const auto rejected = rejecting.call(c.device, rt_ns::kFunctionSetCompensation, c.args);
+        EXPECT_FALSE(rejected.ok) << c.command;
+        EXPECT_NE(rejected.error_message.find("rejected"), std::string::npos) << c.command;
+    }
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, TheSignalsShowANewCompensationAndOnlyWhatWasGivenChanges) {
+    auto rt = make_runtime_on("mock://comp-set");
+    ASSERT_TRUE(rt.call("ph0", rt_ns::kFunctionSetCompensation, comp_args({{"temperature_c", 37.0}})).ok);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "ph0", "ph_temperature_compensation_c"), 37.0);
+
+    ASSERT_TRUE(
+        rt.call("do0", rt_ns::kFunctionSetCompensation, comp_args({{"temperature_c", 30.0}, {"pressure_kpa", 95.0}}))
+            .ok);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 30.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_pressure_compensation_kpa"), 95.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_salinity_compensation_us_cm"), 0.0) << "salinity was not given";
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, SetCompensationChecksItsArgs) {
+    auto rt = make_runtime_on("mock://comp-args");
+    const auto fn = rt_ns::kFunctionSetCompensation;
+    auto expect_code = [&](const char* device, google::protobuf::Map<std::string, adpp::Value> args,
+                           adpp::Status::Code code, const char* why) {
+        const auto result = rt.call(device, fn, args);
+        EXPECT_FALSE(result.ok) << why;
+        EXPECT_EQ(result.error_code, code) << why << ": " << result.error_message;
+    };
+
+    expect_code("ph0", {}, adpp::Status::CODE_INVALID_ARGUMENT, "pH without temperature");
+    expect_code("do0", {}, adpp::Status::CODE_INVALID_ARGUMENT, "DO without temperature");
+    expect_code("do0", comp_args({{"pressure_kpa", 95.0}}), adpp::Status::CODE_INVALID_ARGUMENT,
+                "DO pressure without temperature");
+    expect_code("ph0", comp_args({{"temperature_c", 25.0}, {"salinity_us_cm", 1.0}}),
+                adpp::Status::CODE_INVALID_ARGUMENT, "salinity on pH");
+    expect_code("do0", comp_args({{"temperature", 20.0}}), adpp::Status::CODE_INVALID_ARGUMENT, "unknown arg");
+    expect_code("ph0", comp_args({{"temperature_c", -0.01}}), adpp::Status::CODE_OUT_OF_RANGE, "below 0 C");
+    expect_code("ph0", comp_args({{"temperature_c", 100.01}}), adpp::Status::CODE_OUT_OF_RANGE, "above 100 C");
+    expect_code("do0", comp_args({{"temperature_c", 25.0}, {"salinity_us_cm", -1.0}}), adpp::Status::CODE_OUT_OF_RANGE,
+                "negative salinity");
+    expect_code("do0", comp_args({{"temperature_c", 25.0}, {"salinity_us_cm", 100000.1}}),
+                adpp::Status::CODE_OUT_OF_RANGE, "salinity high");
+    expect_code("do0", comp_args({{"temperature_c", 25.0}, {"pressure_kpa", 9.99}}), adpp::Status::CODE_OUT_OF_RANGE,
+                "pressure low");
+    expect_code("do0", comp_args({{"temperature_c", 25.0}, {"pressure_kpa", 300.01}}), adpp::Status::CODE_OUT_OF_RANGE,
+                "pressure high");
+    expect_code("ph0", comp_args({{"temperature_c", std::nan("")}}), adpp::Status::CODE_INVALID_ARGUMENT, "NaN");
+    auto wrong_type = comp_args({});
+    wrong_type["temperature_c"] = string_value("37");
+    expect_code("ph0", wrong_type, adpp::Status::CODE_INVALID_ARGUMENT, "temperature as a string");
+
+    // A refused call sends nothing.
+    EXPECT_DOUBLE_EQ(comp_value(rt, "ph0", "ph_temperature_compensation_c"), 25.0);
+    EXPECT_TRUE(rt.call("ph0", fn, comp_args({{"temperature_c", 0.0}})).ok) << "0 is inside the bounds";
+    EXPECT_TRUE(rt.call("ph0", fn, comp_args({{"temperature_c", 100.0}})).ok) << "100 is inside the bounds";
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, AProbeThatLosesItsCompensationGetsItBack) {
+    // The device reverts to its defaults after its 3rd reading, as after a power
+    // cut. The periodic check sees it and sends the set value again.
+    auto rt = make_runtime_on("mock://comp-revert?revert_after=3");
+    ASSERT_TRUE(rt.call("ph0", rt_ns::kFunctionSetCompensation, comp_args({{"temperature_c", 37.0}})).ok);
+    for (uint32_t i = 0; i < rt_ns::kCompensationCheckEvery; ++i) {
+        ASSERT_TRUE(rt_ns::refresh_device_sample("ph0").is_ok());
+    }
+    EXPECT_DOUBLE_EQ(comp_value(rt, "ph0", "ph_temperature_compensation_c"), 37.0);
+    EXPECT_EQ(rt.device_health("ph0").metrics.at("compensation_reapplied_count"), "1");
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, NothingSetIsNothingReapplied) {
+    // A probe nobody set is reported as it is, not pushed back to anything.
+    auto rt = make_runtime_on("mock://comp-unset?revert_after=1");
+    for (uint32_t i = 0; i < rt_ns::kCompensationCheckEvery; ++i) {
+        ASSERT_TRUE(rt_ns::refresh_device_sample("do0").is_ok());
+    }
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 20.0);
+    EXPECT_EQ(rt.device_health("do0").metrics.at("compensation_reapplied_count"), "0");
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, ADoCalibrationRunsAtTheDefaultsAndRestoresAfter) {
+    auto rt = make_runtime_on("mock://comp-cal");
+    ASSERT_TRUE(rt.call("do0", rt_ns::kFunctionSetCompensation,
+                        comp_args({{"temperature_c", 37.0}, {"salinity_us_cm", 5000.0}, {"pressure_kpa", 95.0}}))
+                    .ok);
+    const auto cal = rt.call("do0", rt_ns::kFunctionCalibrate, do_args("atmospheric"));
+    ASSERT_TRUE(cal.ok) << cal.error_message;
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 37.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_salinity_compensation_us_cm"), 5000.0);
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_pressure_compensation_kpa"), 95.0);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, ADoCalibrationRestoresWhatTheProbeHeldWhenNothingWasSet) {
+    // The probe compensates for 37 C from before this provider started, so
+    // nothing was set here; the calibration must not leave it at 20 C.
+    auto rt = make_runtime_on("mock://comp-held?temp=37");
+    ASSERT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 37.0);
+    const auto cal = rt.call("do0", rt_ns::kFunctionCalibrate, do_args("atmospheric"));
+    ASSERT_TRUE(cal.ok) << cal.error_message;
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 37.0);
+    EXPECT_EQ(rt.device_health("do0").metrics.at("compensation_reapplied_count"), "0");
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, ADoCalibrationIsNotSentWhenTheDefaultsCannotBeSet) {
+    // The device refuses the default temperature: calibrating at 37 C would
+    // store a wrong atmospheric point, so Cal is never sent.
+    auto rt = make_runtime_on("mock://comp-cal-reject?cal=1&status=T,20.00:2");
+    ASSERT_TRUE(rt.call("do0", rt_ns::kFunctionSetCompensation, comp_args({{"temperature_c", 37.0}})).ok);
+    const auto cal = rt.call("do0", rt_ns::kFunctionCalibrate, do_args("atmospheric"));
+    EXPECT_FALSE(cal.ok);
+    EXPECT_NE(cal.error_message.find("compensation"), std::string::npos) << cal.error_message;
+    EXPECT_DOUBLE_EQ(read_level(rt, "do0", "do_calibration_level").value, 1.0) << "Cal was sent";
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 37.0);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, SalinityInPptIsUnavailableNotMisread) {
+    auto rt = make_runtime_on("mock://comp-ppt?sal_unit=ppt");
+    const LevelReading salinity = read_level(rt, "do0", "do_salinity_compensation_us_cm");
+    ASSERT_TRUE(salinity.ok);
+    EXPECT_FALSE(salinity.has_value);
+    EXPECT_NE(salinity.unavailable_reason.find("ppt"), std::string::npos) << salinity.unavailable_reason;
+    EXPECT_DOUBLE_EQ(comp_value(rt, "do0", "do_temperature_compensation_c"), 20.0);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, ACompensationTheProbeWillNotReportIsUnavailable) {
+    auto rt = make_runtime_on("mock://comp-unreadable?status=T,?:2");
+    const LevelReading temperature = read_level(rt, "ph0", "ph_temperature_compensation_c");
+    ASSERT_TRUE(temperature.ok);
+    EXPECT_FALSE(temperature.has_value);
+    EXPECT_NE(temperature.quality, adpp::SignalValue::QUALITY_OK);
+    const auto value = rt.read("ph0", {"ph_value"});
+    ASSERT_TRUE(value.ok);
+    EXPECT_EQ(value.values.front().quality(), adpp::SignalValue::QUALITY_OK);
+    anolis_provider_ezo::runtime::reset();
+}
+
+TEST(EzoCompensationTest, AFailedReadAfterASetNeverShowsTheOldValue) {
+    // The probe starts at 25 C; the call sets 30. Sweep a two-operation bus
+    // fault across it so that, at some offset, the set succeeds and the read
+    // back after it fails. Wherever the call succeeds, the signal must be 30 or
+    // unavailable: never the 25 from before.
+    int unavailable_after_success = 0;
+    for (int drop_after = 0; drop_after < 40; ++drop_after) {
+        auto rt = make_runtime_on("mock://comp-stale?drop_for=2&drop_after=" + std::to_string(drop_after));
+        const auto call = rt.call("ph0", rt_ns::kFunctionSetCompensation, comp_args({{"temperature_c", 30.0}}));
+        if (!call.ok) {
+            continue;
+        }
+        const LevelReading reading = read_level(rt, "ph0", "ph_temperature_compensation_c");
+        if (reading.has_value) {
+            EXPECT_DOUBLE_EQ(reading.value, 30.0) << "drop_after=" << drop_after;
+        } else {
+            ++unavailable_after_success;
+        }
+    }
+    EXPECT_GT(unavailable_after_success, 0) << "no offset failed the read after a successful set";
     anolis_provider_ezo::runtime::reset();
 }

@@ -152,6 +152,12 @@ CannedOptions CannedOptions::parse(const std::string &query) {
             }
         } else if (key == "cal") {
             options.calibration_level = static_cast<uint32_t>(std::strtoul(value.c_str(), nullptr, 10));
+        } else if (key == "revert_after") {
+            options.revert_after = static_cast<uint32_t>(std::strtoul(value.c_str(), nullptr, 10));
+        } else if (key == "sal_unit") {
+            options.salinity_ppt = value == "ppt";
+        } else if (key == "temp") {
+            options.start_temperature_c = std::strtod(value.c_str(), nullptr);
         }
     }
     return options;
@@ -181,9 +187,22 @@ EzoCannedBus::DeviceState &EzoCannedBus::state_for(uint8_t address) {
         DeviceState st;
         st.family = family_for_address(address);
         st.calibration_level = options_.calibration_level;
+        reset_compensation(st);
+        st.salinity_ppt = options_.salinity_ppt;
+        if (options_.start_temperature_c > 0) {
+            st.temperature_c = options_.start_temperature_c;
+        }
         it = devices_.emplace(address, st).first;
     }
     return it->second;
+}
+
+// The datasheet defaults a probe returns to at power-up: pH compensates for
+// 25 °C; DO for 20 °C, 101.3 kPa and salinity 0.
+void EzoCannedBus::reset_compensation(DeviceState &state) {
+    state.temperature_c = state.family == CannedFamily::Do ? 20.0 : 25.0;
+    state.salinity = 0.0;
+    state.pressure_kpa = 101.3;
 }
 
 std::string EzoCannedBus::response_payload(uint8_t address, DeviceState &state, const std::string &command) {
@@ -194,10 +213,22 @@ std::string EzoCannedBus::response_payload(uint8_t address, DeviceState &state, 
         return output_config_payload(state.family);
     }
     if (command == "r" || starts_with(command, "rt,")) {
+        if (options_.revert_after > 0 && ++state.readings == options_.revert_after) {
+            reset_compensation(state);
+        }
         return read_payload(state.family, address, state.read_seq++);
     }
     if (command == "Cal,?") {
         return "?Cal," + std::to_string(state.calibration_level);
+    }
+    if (command == "T,?") {
+        return "?T," + fixed(state.temperature_c, 2);
+    }
+    if (command == "S,?") {
+        return "?S," + fixed(state.salinity, 1) + (state.salinity_ppt ? ",ppt" : ",uS");
+    }
+    if (command == "P,?") {
+        return "?P," + fixed(state.pressure_kpa, 2);
     }
     // Control commands (Find / L,n) answer with a bare status frame.
     return "";
@@ -211,7 +242,23 @@ void EzoCannedBus::record_command(DeviceState &state, const uint8_t *tx_data, si
     // two); DO counts its points, up to two. A command answered with an error
     // code (status=) leaves it.
     const std::string &cmd = state.last_command;
-    if (cmd == options_.status_command || !starts_with(cmd, "Cal") || cmd == "Cal,?") {
+    if (cmd == options_.status_command) {
+        return;
+    }
+    // A compensation the device accepts is what T,?, S,? and P,? report next.
+    if (cmd.size() > 2 && cmd[1] == ',' && cmd[2] != '?' && (cmd[0] == 'T' || cmd[0] == 'S' || cmd[0] == 'P')) {
+        const double value = std::strtod(cmd.c_str() + 2, nullptr);
+        if (cmd[0] == 'T') {
+            state.temperature_c = value;
+        } else if (cmd[0] == 'P') {
+            state.pressure_kpa = value;
+        } else {
+            state.salinity = value;
+            state.salinity_ppt = cmd.find(",ppt") != std::string::npos;
+        }
+        return;
+    }
+    if (!starts_with(cmd, "Cal") || cmd == "Cal,?") {
         return;
     }
     if (cmd == "Cal,clear") {

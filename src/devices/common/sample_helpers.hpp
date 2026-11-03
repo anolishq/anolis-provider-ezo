@@ -39,6 +39,14 @@ void wait_for_timing_hint(ezo_i2c_device_t *device, const ezo_timing_hint_t &hin
 /** @brief Map an ezo_result_t onto the provider's i2c::Status vocabulary. */
 i2c::Status status_from_ezo_result(ezo_result_t result, const std::string &context);
 
+/**
+ * @brief Read the response code a command left, after its wait (#144).
+ *
+ * A device still processing (254) is read again a few times before this
+ * fails; a rejected command (2) or one with no data (255) fails at once.
+ */
+i2c::Status read_command_response(ezo_i2c_device_t *device);
+
 /** @brief Mark a signal slot as available and carrying a value. */
 void set_signal_value(std::vector<SignalSample> &signals, std::size_t index, double value);
 

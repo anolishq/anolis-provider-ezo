@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "devices/common/compensation.hpp"
 #include "devices/common/device_type.hpp"
 #include "devices/common/signal_definition.hpp"
 #include "devices/common/signal_sample.hpp"
@@ -40,6 +41,15 @@ struct DeviceAdapter {
     // than on every poll. -1 and nullptr for families without calibration.
     int calibration_level_signal = -1;
     i2c::Status (*read_calibration_level)(ezo_i2c_device_t *device, double *level_out) = nullptr;
+    // Compensation (#146): the signals that report what the probe holds, -1 for
+    // a value the family does not take; the T,?/S,?/P,? reader; and the writer
+    // that sends each value given and reads its response. nullptr for
+    // families without compensation.
+    int temperature_compensation_signal = -1;
+    int salinity_compensation_signal = -1;
+    int pressure_compensation_signal = -1;
+    i2c::Status (*read_compensation)(ezo_i2c_device_t *device, CompensationReading *reading_out) = nullptr;
+    i2c::Status (*write_compensation)(ezo_i2c_device_t *device, const Compensation &values) = nullptr;
 };
 
 /** @brief The adapter for a device family. Exhaustive over EzoDeviceType. */

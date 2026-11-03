@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <vector>
@@ -163,6 +164,10 @@ struct ControlArgs {
     bool led_enabled = false;
     int calibration_point = 0;  // index into calibration_points() for the device type
     double reference_ph = 0.0;
+    devices::Compensation compensation;  // set_compensation's values (#146)
+    // A DO calibration runs at the default compensation, then sends these back:
+    // the values set, or else the ones the probe held before.
+    devices::Compensation restore;
 };
 
 // The calibration points calibrate accepts, in the driver's enum order (#90).
@@ -224,6 +229,50 @@ std::optional<sdk::AdapterCallResult> validate_calibrate_args(EzoDeviceType type
     return std::nullopt;
 }
 
+// set_compensation's args (#146): temperature_c, required; DO also takes
+// salinity_us_cm and pressure_kpa.
+std::optional<sdk::AdapterCallResult> validate_compensation_args(EzoDeviceType type, const sdk::ValueMap& args,
+                                                                 ControlArgs* out) {
+    struct Field {
+        const char* name;
+        double min;
+        double max;
+        std::optional<double>* target;
+    };
+    std::vector<Field> fields = {
+        {"temperature_c", devices::kMinTemperatureC, devices::kMaxTemperatureC, &out->compensation.temperature_c}};
+    if (type == EzoDeviceType::Do) {
+        fields.push_back({"salinity_us_cm", devices::kMinSalinityUsCm, devices::kMaxSalinityUsCm,
+                          &out->compensation.salinity_us_cm});
+        fields.push_back(
+            {"pressure_kpa", devices::kMinPressureKpa, devices::kMaxPressureKpa, &out->compensation.pressure_kpa});
+    }
+
+    for (const auto& [name, value] : args) {
+        const auto field =
+            std::find_if(fields.begin(), fields.end(), [&name](const Field& f) { return name == f.name; });
+        if (field == fields.end()) {
+            return sdk::call_invalid_argument("set_compensation does not take arg '" + name + "'");
+        }
+        if (value.type() != adpp::VALUE_TYPE_DOUBLE) {
+            return sdk::call_invalid_argument("arg '" + name + "' must be VALUE_TYPE_DOUBLE");
+        }
+        const double number = value.double_value();
+        if (!std::isfinite(number)) {
+            return sdk::call_invalid_argument("arg '" + name + "' must be finite");
+        }
+        if (number < field->min || number > field->max) {
+            return sdk::call_out_of_range(
+                std::format("arg '{}' must be between {} and {}", name, field->min, field->max));
+        }
+        *field->target = number;
+    }
+    if (!out->compensation.temperature_c) {
+        return sdk::call_invalid_argument("missing required arg 'temperature_c'");
+    }
+    return std::nullopt;
+}
+
 // Check a call's args before any bus work. Returns the error result, or nullopt
 // with *out filled.
 std::optional<sdk::AdapterCallResult> validate_call_args(uint32_t function_id, EzoDeviceType type,
@@ -252,53 +301,18 @@ std::optional<sdk::AdapterCallResult> validate_call_args(uint32_t function_id, E
         }
         case runtime::kFunctionCalibrate:
             return validate_calibrate_args(type, args, out);
+        case runtime::kFunctionSetCompensation:
+            return validate_compensation_args(type, args, out);
         default:
             return sdk::call_invalid_argument("unsupported function_id");
     }
 }
 
-// A device that answers 254 (still processing) is read again this many times,
-// this far apart, before the call fails (#144).
-constexpr int kPendingRereads = 4;
-constexpr uint32_t kPendingRereadMs = 250;
 // A call's deadline covers the command's own wait plus this much for the
 // response read and any re-reads, as a sample read's covers its latency.
 constexpr int kResponseHeadroomMs = 1500;
 // Decimals sent with a pH reference value, as in Cal,mid,7.00.
 constexpr uint8_t kReferencePhDecimals = 2;
-
-// Read the response code a command left, after its wait (#144).
-i2c::Status read_command_response(ezo_i2c_device_t* device) {
-    for (int reread = 0;; ++reread) {
-        char buffer[32] = {};
-        size_t response_len = 0;
-        ezo_device_status_t device_status = EZO_STATUS_UNKNOWN;
-        const ezo_result_t result = ezo_read_response(device, buffer, sizeof(buffer), &response_len, &device_status);
-        if (result != EZO_OK) {
-            return devices::status_from_ezo_result(result, "read command response");
-        }
-        switch (device_status) {
-            case EZO_STATUS_SUCCESS:
-                return i2c::Status::ok();
-            case EZO_STATUS_FAIL:
-                return devices::make_status(i2c::StatusCode::Internal,
-                                            "device rejected the command (response code 2, syntax error)");
-            case EZO_STATUS_NOT_READY:
-                if (reread < kPendingRereads) {
-                    devices::wait_for_timing_hint(device, ezo_timing_hint_t{kPendingRereadMs});
-                    continue;
-                }
-                return devices::make_status(i2c::StatusCode::Unavailable,
-                                            "device still processing the command (response code 254)");
-            case EZO_STATUS_NO_DATA:
-                return devices::make_status(i2c::StatusCode::Unavailable,
-                                            "device returned no data for the command (response code 255)");
-            case EZO_STATUS_UNKNOWN:
-                break;
-        }
-        return devices::make_status(i2c::StatusCode::Internal, "device returned an unknown response code");
-    }
-}
 
 // Execute one control call through the serialized I2C executor. In mock mode the
 // canned bus answers the send, so the same path runs for real and mock. Returns
@@ -320,18 +334,58 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
     if (ezo_product_resolve_timing_hint(product_id, EZO_PRODUCT_TRANSPORT_I2C, kind, &command_wait) != EZO_OK) {
         return {false, Status::CODE_INTERNAL, "no command timing for the configured device type"};
     }
+    ezo_timing_hint_t generic_wait{};
+    if (ezo_product_resolve_timing_hint(product_id, EZO_PRODUCT_TRANSPORT_I2C, EZO_COMMAND_GENERIC, &generic_wait) !=
+        EZO_OK) {
+        return {false, Status::CODE_INTERNAL, "no command timing for the configured device type"};
+    }
+    // set_compensation sends up to three commands; a DO calibration sends three
+    // before Cal and three after (#146). Each adds a generic command's wait, and
+    // the one headroom covers the re-reads: a DO calibration gets 1.3 s, 6 x
+    // 300 ms and 1.5 s, inside the runtime's 5 s call timeout.
+    int extra_commands = 0;
+    const bool do_calibration = function_id == runtime::kFunctionCalibrate && type == EzoDeviceType::Do;
+    if (function_id == runtime::kFunctionSetCompensation) {
+        extra_commands = 2;
+    } else if (do_calibration) {
+        extra_commands = 6;
+    }
     const std::chrono::milliseconds timeout(
-        std::max(timeout_ms, static_cast<int>(command_wait.wait_ms) + kResponseHeadroomMs));
+        std::max(timeout_ms, static_cast<int>(command_wait.wait_ms) + kResponseHeadroomMs +
+                                 extra_commands * static_cast<int>(generic_wait.wait_ms)));
+    const auto write_compensation = devices::adapter_for(type).write_compensation;
 
     // The job captures by value: it can outlive this call (#138).
     const auto address = static_cast<uint8_t>(device.spec.address);
     const i2c::Status status = runtime::submit_i2c_job(
         "call:" + std::to_string(function_id) + ":" + device.spec.id, timeout,
-        [address, function_id, type, product_id, args](i2c::I2cBus& bus) {
+        [address, function_id, type, product_id, args, do_calibration, write_compensation](i2c::I2cBus& bus) {
             i2c::EzoDeviceBinding binding;
             i2c::Status bind_status = i2c::bind_ezo_i2c_device(bus, address, binding);
             if (!bind_status.is_ok()) {
                 return bind_status;
+            }
+
+            if (function_id == runtime::kFunctionSetCompensation) {
+                if (write_compensation == nullptr) {
+                    return devices::make_status(i2c::StatusCode::InvalidArgument, "unsupported function_id");
+                }
+                return write_compensation(&binding.device, args.compensation);
+            }
+            // The DO datasheet calibrates at the default compensation; a point
+            // stored at any other leaves every later reading off (#146).
+            if (do_calibration) {
+                const i2c::Status defaults =
+                    write_compensation(&binding.device, devices::Compensation{devices::kDoDefaultTemperatureC,
+                                                                              devices::kDoDefaultSalinityUsCm,
+                                                                              devices::kDoDefaultPressureKpa});
+                if (!defaults.is_ok()) {
+                    (void)write_compensation(&binding.device, args.restore);
+                    return devices::make_status(defaults.code,
+                                                "could not set the default compensation a DO calibration needs, "
+                                                "so the calibration was not sent: " +
+                                                    defaults.message);
+                }
             }
 
             ezo_timing_hint_t hint{};
@@ -372,7 +426,13 @@ sdk::AdapterCallResult execute_safe_call(const runtime::ActiveDevice& device, ui
             if (function_id == runtime::kFunctionSleep) {
                 return i2c::Status::ok();
             }
-            return read_command_response(&binding.device);
+            const i2c::Status response = devices::read_command_response(&binding.device);
+            // Sent back whether or not the calibration took; a failure here is
+            // what the read-back after the call shows, and the next check fixes.
+            if (do_calibration) {
+                (void)write_compensation(&binding.device, args.restore);
+            }
+            return response;
         });
     return {status.is_ok(), map_i2c_status_code(status.code), status.message};
 }
@@ -466,6 +526,9 @@ sdk::DeviceHealthExtra EzoProviderRuntime::device_health(const std::string& devi
         m["sample_failure_count"] = std::to_string(device->sample.failure_count);
         m["call_success_count"] = std::to_string(device->call_success_count);
         m["call_failure_count"] = std::to_string(device->call_failure_count);
+        if (devices::adapter_for(device->spec.type).read_compensation != nullptr) {
+            m["compensation_reapplied_count"] = std::to_string(device->compensation_reapplied_count);
+        }
         // Transport-level io counters (ezo#100): bus/electrical health only —
         // protocol-level failures (garbage payloads, EZO not-ready) surface in
         // the sample_*/call_* counters above. Shared key vocabulary with other
@@ -708,10 +771,31 @@ sdk::AdapterCallResult EzoProviderRuntime::call(const std::string& device_id, ui
         return *arg_error;
     }
 
+    if (function_id == runtime::kFunctionCalibrate && device->spec.type == EzoDeviceType::Do) {
+        const devices::Compensation& set = device->compensation_set;
+        const devices::Compensation& held = device->compensation_read.values;
+        control_args.restore = devices::Compensation{set.temperature_c ? set.temperature_c : held.temperature_c,
+                                                     set.salinity_us_cm ? set.salinity_us_cm : held.salinity_us_cm,
+                                                     set.pressure_kpa ? set.pressure_kpa : held.pressure_kpa};
+    }
+
     // The SDK call() carries no caller deadline; execute_safe_call sizes one from
     // the provider's configured timeout and the command's own wait.
     const sdk::AdapterCallResult result =
         execute_safe_call(*device, function_id, control_args, state.config.timeout_ms);
+    // Compensation the call set or touched is read back, so the signals show
+    // what the probe holds, whether the call succeeded or not (#146).
+    if (function_id == runtime::kFunctionSetCompensation ||
+        (function_id == runtime::kFunctionCalibrate && device->spec.type == EzoDeviceType::Do)) {
+        if (result.ok && function_id == runtime::kFunctionSetCompensation) {
+            runtime::remember_compensation(device_id, control_args.compensation);
+        }
+        const i2c::Status check = runtime::check_compensation(device_id);
+        if (!check.is_ok()) {
+            logging::warning("compensation read after '" + function_spec->name() + "' failed for device '" + device_id +
+                             "': " + check.message);
+        }
+    }
     if (!result.ok) {
         runtime::record_call_result(device_id, function_spec->name(), false, result.error_message);
         logging::warning("call failed for device '" + device_id + "' function '" + function_spec->name() +

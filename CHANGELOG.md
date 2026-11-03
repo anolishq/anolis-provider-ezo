@@ -4,6 +4,25 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **pH and DO compensation** (#146). `sensor.ezo.ph` and `sensor.ezo.do`
+  declare `set_compensation` (function 6): `temperature_c`, required, and for
+  DO also `salinity_us_cm` and `pressure_kpa`, each sent when given. It
+  is `CATEGORY_CONFIG` with no mode restriction, so an automation can set it.
+  New signals report what the probe holds (`T,?`, `S,?`, `P,?`):
+  `ph_temperature_compensation_c`, `do_temperature_compensation_c`,
+  `do_salinity_compensation_us_cm` and `do_pressure_compensation_kpa`. They are
+  read at startup, after each set and about once a minute. A probe found to
+  have lost a set value, as after a power cut, gets it sent again, with a
+  warning and the `compensation_reapplied_count` health metric.
+
+### Changed
+
+- **DO `calibrate` runs at the default compensation** (#146), as the DO
+  datasheet requires: 20 C, salinity 0 and 101.3 kPa, then the values from
+  before. If the probe refuses the defaults the calibration is not sent.
+
 ## [0.5.1] - 2026-11-02
 
 ### Added
