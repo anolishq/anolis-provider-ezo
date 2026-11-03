@@ -4,6 +4,12 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-02
+
+0.6.0 is a minor release: pH and DO gain `set_compensation`, and DO
+`calibrate` now runs at the default compensation. A configuration written for
+0.5.1 runs unchanged.
+
 ### Added
 
 - **pH and DO compensation** (#146). `sensor.ezo.ph` and `sensor.ezo.do`
