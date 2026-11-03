@@ -8,7 +8,9 @@ EZO sensor hardware provider for the Anolis runtime.
 2. Serialized I2C execution model with Linux and mock session support.
 3. Full EZO family coverage (`ph`, `orp`, `ec`, `do`, `rtd`, `hum`) with fixed signal surfaces.
 4. Safe control functions across families (`find`, `set_led`, `sleep`), and
-   MANUAL-only calibration for pH and DO (`calibrate`, `clear_calibration`).
+   MANUAL-only calibration for pH and DO (`calibrate`, `clear_calibration`),
+   and their temperature, salinity and pressure compensation
+   (`set_compensation`).
 5. Startup identity verification with active/excluded inventory diagnostics.
 6. Mixed-bus validation assets for Windows mock and Linux real hardware.
 7. Runtime duplicate ownership validation integration landed in `anolis`.

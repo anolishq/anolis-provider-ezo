@@ -48,6 +48,11 @@ struct CannedOptions {
     std::string pending_command;     // pending=<cmd>:<n>: answer it with status 254 (still processing)
     uint32_t pending_reads = 0;      //   for the first n reads after each send
     uint32_t calibration_level = 0;  // cal=<n>: every device starts with Cal,? reporting n
+    uint32_t revert_after = 0;       // revert_after=<n>: after its n-th reading a device's compensation goes back
+                                     //   to the defaults, as after a power cut (0: never)
+    bool salinity_ppt = false;       // sal_unit=ppt: DO reports its salinity compensation in ppt
+    double start_temperature_c = 0;  // temp=<n>: every device starts compensating for n C, as one set before
+                                     //   the provider started would (0: the datasheet default)
 
     /** @brief Parse the options from a `key=value&...` query; unknown keys are ignored. */
     static CannedOptions parse(const std::string &query);
@@ -77,7 +82,15 @@ private:
         uint64_t read_seq = 0;
         uint32_t pending_left = 0;
         uint32_t calibration_level = 0;
+        // Compensation, at the datasheet defaults until set (#146).
+        double temperature_c = 0.0;
+        double salinity = 0.0;
+        bool salinity_ppt = false;
+        double pressure_kpa = 0.0;
+        uint64_t readings = 0;
     };
+
+    static void reset_compensation(DeviceState &state);
 
     DeviceState &state_for(uint8_t address);
     // Build the ASCII payload a real device would return for `command`, or empty

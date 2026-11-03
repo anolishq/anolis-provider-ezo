@@ -13,6 +13,7 @@
 
 #include "anolis/provider_sdk/host_check.hpp"
 #include "config/provider_config.hpp"
+#include "devices/common/compensation.hpp"
 #include "devices/common/signal_sample.hpp"
 #include "i2c/bus_executor.hpp"
 #include "protocol.pb.h"
@@ -75,6 +76,16 @@ struct ActiveDevice {
     // when the last read failed, with the reason in calibration_level_error.
     std::optional<double> calibration_level;
     std::string calibration_level_error;
+    // Compensation (#146). `compensation_set` holds the values set through
+    // set_compensation, which are sent again when a check finds the probe has
+    // lost them; it is empty after a provider start, since a probe keeps its
+    // compensation until it loses power. `compensation_read` is what the probe
+    // last reported, empty until read or when the last read failed, with the
+    // reason in compensation_error.
+    devices::Compensation compensation_set;
+    devices::CompensationReading compensation_read;
+    std::string compensation_error;
+    uint64_t compensation_reapplied_count = 0;
 
     bool has_last_call = false;
     bool last_call_ok = false;
@@ -124,6 +135,13 @@ constexpr uint32_t kFunctionSleep = 3;
 // pH and DO also declare calibration, numbered after the shared three (#90).
 constexpr uint32_t kFunctionCalibrate = 4;
 constexpr uint32_t kFunctionClearCalibration = 5;
+// pH and DO compensation (#146).
+constexpr uint32_t kFunctionSetCompensation = 6;
+
+// Every this many successful samples, a device's compensation is read back and
+// sent again if the probe has lost it: about once a minute at the default
+// 2500 ms sample interval.
+constexpr uint32_t kCompensationCheckEvery = 24;
 
 /** @brief Reset global runtime state and stop any running executor. */
 void reset();
@@ -188,6 +206,18 @@ i2c::Status refresh_device_sample(const std::string &device_id);
  * unknown, so a stale level is never reported after a calibration.
  */
 i2c::Status refresh_calibration_level(const std::string &device_id);
+
+/**
+ * @brief Read one device's compensation back, and send the set values again if
+ * the probe no longer holds them (#146).
+ *
+ * A no-op for a family without compensation. On a failed read the values
+ * become unknown rather than keeping the last ones read.
+ */
+i2c::Status check_compensation(const std::string &device_id);
+
+/** @brief Record values a set_compensation call applied, to be re-sent if lost. */
+void remember_compensation(const std::string &device_id, const devices::Compensation &values);
 
 /** @brief Record the last control-call result for one active device. */
 void record_call_result(const std::string &device_id, const std::string &function_name, bool ok,
