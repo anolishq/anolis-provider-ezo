@@ -42,10 +42,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build g++
 
+      # ci-tsan installs x64-linux-tsan, so the cache is keyed by that triplet:
+      # under x64-linux-static this job would save TSan-built packages where
+      # the release-preset jobs look for their own.
       - name: Setup vcpkg
         uses: anolishq/.github/.github/actions/setup-vcpkg@7a3a0624c056ea20fcb901968c482f9ed2ffb818 # v2.8
         with:
-          triplet: x64-linux-static
+          triplet: x64-linux-tsan
 
       - name: Configure
         run: cmake --preset ci-tsan

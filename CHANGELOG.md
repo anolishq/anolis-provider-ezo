@@ -10,6 +10,13 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
   `GetHealth`, fails a crash on `--config-schema` or `--check-host`, checks
   Hello/manifest level agreement at L1 and checks that `--check-config` rejects
   an invalid config.
+- CI conformance builds the `ci-linux-release` preset, the one release.yml
+  ships, instead of `dev-release`, and the TSan job keys its vcpkg cache as
+  `x64-linux-tsan`. Both jobs saved the x64-linux-static vcpkg cache while
+  building other triplets (`dev-release` builds x64-linux, `ci-tsan`
+  x64-linux-tsan). When one of them saved it first, clang-tidy and valgrind
+  restored a cache without their packages and built them again on every run
+  until the cache key next changed.
 
 ## [0.6.0] - 2026-11-02
 

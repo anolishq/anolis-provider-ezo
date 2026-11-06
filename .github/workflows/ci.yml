@@ -160,6 +160,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++
 
+      # This job saves the x64-linux-static vcpkg cache that clang-tidy,
+      # valgrind and the dependency scan restore, so it builds a preset that
+      # installs x64-linux-static: the release preset, which is also what
+      # release.yml ships. The cache key is named by `triplet`, not by what
+      # the preset builds, so the two have to agree.
       - name: Setup vcpkg
         uses: anolishq/.github/.github/actions/setup-vcpkg@7a3a0624c056ea20fcb901968c482f9ed2ffb818 # v2.8
         with:
@@ -168,8 +173,8 @@ jobs:
       - name: Build provider (no hardware)
         working-directory: anolis-provider-ezo
         run: |
-          cmake --preset dev-release
-          cmake --build --preset dev-release --parallel
+          cmake --preset ci-linux-release
+          cmake --build --preset ci-linux-release --parallel
 
       - name: Install the pinned conformance harness
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -184,7 +189,7 @@ jobs:
         working-directory: anolis-provider-ezo
         run: |
           anolis-adpp-conformance \
-            --provider-bin build/dev-release/anolis-provider-ezo \
+            --provider-bin build/ci-linux-release/anolis-provider-ezo \
             --provider-config config/conformance.yaml \
             --provider-profile config/conformance.toml \
             -ra
