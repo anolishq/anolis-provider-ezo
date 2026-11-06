@@ -88,6 +88,9 @@ jobs:
             configure_preset: dev-release
             build_preset: dev-release
             test_preset: dev-release
+            # dev-release builds x64-linux, so this key's name is wrong, but this
+            # is the only main-branch job saving it on 24.04, and release.yml's
+            # x64-linux-static build restores the host x64-linux protobuf from it.
             triplet: x64-linux-static
             timeout_minutes: 30
           # arm64 is the Pi deployment arch — run the unit tests natively so
@@ -148,7 +151,10 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    # A cold vcpkg cache builds the static and host closure (host protobuf alone
+    # took 9.5-13 min on cf6cf0c), about 24 min in all. A timed-out run saves no
+    # cache, and this is the job that saves it.
+    timeout-minutes: 45
     steps:
       - name: Checkout anolis-provider-ezo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

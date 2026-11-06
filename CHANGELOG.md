@@ -16,7 +16,9 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
   building other triplets (`dev-release` builds x64-linux, `ci-tsan`
   x64-linux-tsan). When one of them saved it first, clang-tidy and valgrind
   restored a cache without their packages and built them again on every run
-  until the cache key next changed.
+  until the cache key next changed. Conformance's timeout goes from 30 to 45
+  minutes: it now saves that cache, a cold build takes about 24 minutes, and
+  a run that times out saves nothing.
 
 ## [0.6.0] - 2026-11-02
 
