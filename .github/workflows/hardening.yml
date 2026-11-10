@@ -46,7 +46,7 @@ jobs:
       # under x64-linux-static this job would save TSan-built packages where
       # the release-preset jobs look for their own.
       - name: Setup vcpkg
-        uses: anolishq/.github/.github/actions/setup-vcpkg@2f08cae7f3b9bfaa817b822e256d9f66b1fdb18d # v2.10
+        uses: anolishq/.github/.github/actions/setup-vcpkg@f4817837f29993c35b5350fbb5dfe2563437fcde # v2.11
         with:
           triplet: x64-linux-tsan
 
@@ -87,7 +87,7 @@ jobs:
 
   valgrind:
     name: Valgrind leak-check
-    uses: anolishq/.github/.github/workflows/valgrind-leak.yml@2f08cae7f3b9bfaa817b822e256d9f66b1fdb18d # v2
+    uses: anolishq/.github/.github/workflows/valgrind-leak.yml@f4817837f29993c35b5350fbb5dfe2563437fcde # v2
     with:
       build-preset: ci-linux-release
       build-target: anolis-provider-ezo
