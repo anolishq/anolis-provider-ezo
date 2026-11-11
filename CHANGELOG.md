@@ -8,14 +8,15 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 0.7.0 is a minor release because a call ezo used to run can now be refused: the
 SDK it builds on, now 0.7.0, refuses a call whose `CallRequest.deadline` has
-passed, and one carrying a value whose type tag and field disagree. A configuration written for 0.6.0 runs unchanged.
+passed, and one carrying a number whose type tag and field disagree. A
+configuration written for 0.6.0 runs unchanged.
 
 Upgrade notes for operators:
 
 - **Calls through the anolis runtime are unchanged.** The runtime sends no
   deadline and checks every call against the same spec ezo declares.
 - **A client that talks ADPP to ezo directly** gets `CODE_DEADLINE_EXCEEDED` for
-  a call past the deadline it sent, and `CODE_INVALID_ARGUMENT` for a value
+  a call past the deadline it sent, and `CODE_INVALID_ARGUMENT` for a number
   whose type tag and field disagree, which ezo read as zero and ran: a
   `temperature_c` tagged double but carried as an int64 set the compensation
   to 0 C. A call with several bad arguments can get a different code than
@@ -31,22 +32,23 @@ Upgrade notes for operators:
 - anolis-provider-sdk 0.3.0 -> 0.7.0. What a client of ezo sees:
   - A call's arguments are checked against the function's declared spec
     before ezo's handler runs (semantics §8.3). Ezo's handler already checked
-    the same spec, so the same calls are refused, except a value whose type
-    tag and field disagree: ezo checked only the tag, read the field as zero
-    and ran the call, and the SDK refuses it. A call with several bad
-    arguments can get a different code, because the SDK checks in declared
-    order and ezo checked in the order the arguments arrived. A refused call
-    no longer reaches the handler, so the device's health does not count it:
-    `call_failure_count` and the provider's `call_failure_total` do not
-    rise, and the `last_call_*` keys keep the previous call's values. The anolis runtime checks calls against the same spec before
-    sending them.
+    the same spec, so the same calls are refused, except a number or bool
+    whose type tag and field disagree: ezo checked only the tag, read the
+    field as zero and ran the call, and the SDK refuses it. A call with
+    several bad arguments can get a different code, because the SDK checks in
+    declared order and ezo checked in the order the arguments arrived. A
+    refused call no longer reaches the handler, so the device's health does
+    not count it: `call_failure_count` and the provider's
+    `call_failure_total` do not rise, and the `last_call_*` keys keep the
+    previous call's values. The
+    anolis runtime checks calls against the same spec before sending them.
   - Hello advertises `supports_deadlines` (semantics §8.4). A call whose
     deadline has already passed is `CODE_DEADLINE_EXCEEDED` before it reaches
     a device, and a malformed deadline is `CODE_INVALID_ARGUMENT`; neither is
     counted in the device's health. A call that succeeds after its deadline
     is also answered `CODE_DEADLINE_EXCEEDED`, with `side_effects = possible`
-    and no results; one that fails keeps its own error. The anolis runtime sets no deadline, so this reaches only
-    a client that sends one.
+    and no results; one that fails keeps its own error. The anolis runtime
+    sets no deadline, so this reaches only a client that sends one.
   - A reply over the 1 MiB frame cap is answered `CODE_RESOURCE_EXHAUSTED`,
     and ezo keeps serving instead of exiting. Exit code 4 (a reply that
     failed to serialize) no longer occurs, and 5 means a failed write to
