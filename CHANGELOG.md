@@ -6,6 +6,31 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ### Changed
 
+- anolis-provider-sdk 0.3.0 -> 0.7.0. What a client of ezo sees:
+  - A call's arguments are checked against the function's declared spec
+    before ezo's handler runs (semantics §8.3). Ezo's handler already checked
+    the same spec, so the same calls are refused. A call with several bad
+    arguments can get a different code, because the SDK checks in declared
+    order and ezo checked in the order the arguments arrived. A refused call
+    no longer reaches the handler, so the device's health does not count it:
+    `call_failure_count` and the provider's `call_failure_total` do not
+    rise, and `last_call_ok` and `last_call_error` keep the previous call's
+    values. The anolis runtime checks calls against the same spec before
+    sending them.
+  - Hello advertises `supports_deadlines` (semantics §8.4). A call whose
+    deadline has already passed is `CODE_DEADLINE_EXCEEDED` before it reaches
+    a device, and a malformed deadline is `CODE_INVALID_ARGUMENT`; neither is
+    counted in the device's health. A call that finishes after its deadline
+    is also answered `CODE_DEADLINE_EXCEEDED`, with `side_effects = possible`
+    and no results. The anolis runtime sets no deadline, so this reaches only
+    a client that sends one.
+  - A reply over the 1 MiB frame cap is answered `CODE_RESOURCE_EXHAUSTED`,
+    and ezo keeps serving instead of exiting.
+  - The SDK is now Apache-2.0. Ezo stays AGPL-3.0.
+
+  Not taken up here: the I2C claim still uses `i2c::claim_key`, so two
+  spellings of one bus path are not yet caught.
+
 - CI conformance harness: anolis-protocol 1.8.0 -> 1.9.0, which gates
   `GetHealth`, fails a crash on `--config-schema` or `--check-host`, checks
   Hello/manifest level agreement at L1 and checks that `--check-config` rejects
