@@ -4,6 +4,23 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-11
+
+0.7.0 is a minor release because a call ezo used to run can now be refused: the
+SDK it builds on, now 0.7.0, refuses a call whose `CallRequest.deadline` has
+passed. A configuration written for 0.6.0 runs unchanged.
+
+Upgrade notes for operators:
+
+- **Calls through the anolis runtime are unchanged.** The runtime sends no
+  deadline and checks every call against the same spec ezo declares.
+- **A client that talks ADPP to ezo directly** gets `CODE_DEADLINE_EXCEEDED` for
+  a call past the deadline it sent, and a call with several bad arguments can
+  get a different code than before.
+- **Health counts only calls that reach ezo.** A call the SDK refuses no longer
+  raises `call_failure_count` or `call_failure_total`, or changes
+  `last_call_ok` and `last_call_error`.
+
 ### Changed
 
 - anolis-provider-sdk 0.3.0 -> 0.7.0. What a client of ezo sees:
