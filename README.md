@@ -6,7 +6,9 @@ EZO sensor hardware provider for the Anolis runtime.
 
 1. Runnable ADPP provider with config parsing, framed stdio transport, and unit tests.
 2. Serialized I2C execution model with Linux and mock session support.
-3. Full EZO family coverage (`ph`, `orp`, `ec`, `do`, `rtd`, `hum`) with fixed signal surfaces.
+3. Six EZO families (`ph`, `orp`, `ec`, `do`, `rtd`, `hum`) with fixed signal
+   surfaces. Which have run on real hardware, and on which release:
+   [Hardware support](https://anolishq.github.io/get-started/hardware).
 4. Safe control functions across families (`find`, `set_led`, `sleep`), and
    MANUAL-only calibration for pH and DO (`calibrate`, `clear_calibration`),
    and their temperature, salinity and pressure compensation
