@@ -13,6 +13,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 #include "anolis/provider_sdk/host_check.hpp"
 #include "anolis/provider_sdk/result.hpp"
 #include "config/provider_config.hpp"
@@ -272,6 +276,50 @@ TEST(EzoProviderRuntimeTest, MockModeHasNoHostRequirements) {
 }
 
 #if defined(__linux__)
+// ezo#139: the host check passes (it reports unknown, not unmet) but the bus
+// cannot be opened. Every configured device is excluded with the open failure,
+// so readiness and health agree on how many devices failed and why.
+TEST(EzoProviderRuntimeTest, ABusThatWillNotOpenExcludesEveryDevice) {
+#ifdef _WIN32
+    GTEST_SKIP() << "a real I2C bus path is a Linux case";
+#else
+    if (::geteuid() == 0) {
+        GTEST_SKIP() << "root reads through a mode-000 directory, so the open would not fail";
+    }
+    namespace fs = std::filesystem;
+    const fs::path dir =
+        fs::temp_directory_path() / ("ezo-locked-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
+    fs::create_directories(dir);
+    std::ofstream(dir / "i2c-1").put('\0');
+    fs::permissions(dir, fs::perms::none);
+
+    auto config = make_mock_config();
+    config.bus_path = (dir / "i2c-1").string();
+    const bool host_passes = anolis::provider_sdk::host_check::exit_code(anolis_provider_ezo::check_host(config)) == 0;
+
+    anolis_provider_ezo::runtime::reset();
+    anolis_provider_ezo::runtime::initialize(config);
+    const anolis_provider_ezo::EzoProviderRuntime rt;
+    const auto r = rt.readiness();
+    const auto h = rt.provider_health();
+    anolis_provider_ezo::runtime::reset();
+    fs::permissions(dir, fs::perms::owner_all);
+    fs::remove_all(dir);
+
+    ASSERT_TRUE(host_passes) << "the host check must pass for this path";
+    EXPECT_FALSE(r.ready);
+    EXPECT_EQ(r.extra_diagnostics.at("i2c_executor_running"), "false");
+    ASSERT_EQ(r.failed_devices.size(), 2U);
+    for (const auto& failed : r.failed_devices) {
+        EXPECT_NE(failed.reason.find("failed to initialize I2C executor"), std::string::npos) << failed.reason;
+    }
+    EXPECT_EQ(r.extra_diagnostics.at("excluded_device_count"), "2");
+    EXPECT_EQ(h.metrics.at("excluded_devices"), "2");
+    EXPECT_TRUE(h.metrics.contains("excluded_reason.ph0"));
+    EXPECT_TRUE(h.metrics.contains("excluded_reason.do0"));
+#endif
+}
+
 TEST(EzoProviderRuntimeTest, MissingBusStaysUpNotReady) {
     // A real (non-mock) bus path that does not exist: the executor is never
     // started, every configured device is excluded with the reason, and

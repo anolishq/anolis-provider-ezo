@@ -6,6 +6,11 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ### Fixed
 
+- A bus that the host check passes but that fails to open at startup now
+  excludes every configured device with the open failure as its reason, as an
+  unmet host requirement does. Readiness reported no failed devices in that
+  state, and health's `excluded_devices` disagreed with its own
+  `startup_failed_devices` (#139).
 - Each device now publishes every claim key the SDK gives for its address: the
   key for `bus_path` as configured and, when it differs, the key for the path it
   resolves to. A provider that names the same adapter through a symlink now

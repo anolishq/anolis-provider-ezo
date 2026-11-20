@@ -523,6 +523,12 @@ void initialize(const ProviderConfig &config) {
     state.i2c_metrics = executor->snapshot_metrics();
     if (!start_status.is_ok()) {
         state.startup_message = "startup failed to initialize I2C executor: " + start_status.message;
+        // Like an unmet host requirement, a bus that will not open excludes
+        // every configured device with the reason, so readiness and health
+        // count the same failures (#139).
+        for (const DeviceSpec &spec : config.devices) {
+            state.excluded_devices.push_back(ExcludedDevice{spec, state.startup_message});
+        }
         std::lock_guard<std::mutex> lock(g_mutex);
         g_state = std::move(state);
         return;
