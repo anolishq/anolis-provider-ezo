@@ -6,6 +6,11 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ### Fixed
 
+- Each device now publishes every claim key the SDK gives for its address: the
+  key for `bus_path` as configured and, when it differs, the key for the path it
+  resolves to. A provider that names the same adapter through a symlink now
+  collides with ezo at the runtime's claim check instead of sharing the address
+  (#165).
 - The `hardware.sample_interval_ms` help no longer contradicts its default. It
   said to set the field to the runtime's `polling.interval_ms`, whose default is
   500 ms, while the field defaults to 2500 ms. It now says the default assumes a

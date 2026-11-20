@@ -281,6 +281,8 @@ std::vector<std::string> default_signal_ids_for_type(EzoDeviceType type) {
     return ids;
 }
 
+}  // namespace
+
 anolis::deviceprovider::v1::Device build_descriptor(const ProviderConfig &config, const DeviceSpec &spec) {
     anolis::deviceprovider::v1::Device descriptor;
     const std::string formatted_address = format_i2c_address(spec.address);
@@ -290,14 +292,20 @@ anolis::deviceprovider::v1::Device build_descriptor(const ProviderConfig &config
     descriptor.set_type_version("1");
     descriptor.set_label(spec.label.empty() ? spec.id : spec.label);
     descriptor.set_address(formatted_address);
-    // The bus address this device owns, as an opaque claim the runtime checks
-    // for uniqueness across providers (anolis#318); the SDK spells the key so
-    // every provider on the bus agrees.
-    anolis::provider_sdk::add_claim(
-        descriptor, anolis::provider_sdk::i2c::claim_key(config.bus_path, static_cast<unsigned int>(spec.address)));
+    // The bus address this device owns, as opaque claims the runtime checks
+    // for uniqueness across providers (anolis#318); the SDK spells the keys so
+    // every provider on the bus agrees. claim_keys adds the key for the
+    // resolved bus path when it differs, so two names for one adapter collide
+    // (ezo#165).
+    for (const auto &key :
+         anolis::provider_sdk::i2c::claim_keys(config.bus_path, static_cast<unsigned int>(spec.address))) {
+        anolis::provider_sdk::add_claim(descriptor, key);
+    }
     (*descriptor.mutable_tags())["configured_type"] = to_string(spec.type);
     return descriptor;
 }
+
+namespace {
 
 i2c::Status probe_identity_real(i2c::BusExecutor &executor, const ProviderConfig &config, const DeviceSpec &spec,
                                 ezo_device_info_t *info_out) {
