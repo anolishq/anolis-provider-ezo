@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <thread>
@@ -227,6 +229,34 @@ TEST(EzoProviderRuntimeTest, DevicesPublishAnOpaqueClaim) {
     EXPECT_EQ(tags.count("hw.i2c_address"), 0U);
     EXPECT_EQ(tags.count("bus_path"), 0U);
     EXPECT_EQ(tags.count("i2c_address"), 0U);
+}
+
+// ezo#165: the runtime compares claim keys as exact strings, so a bus named
+// through a symlink also publishes the key for the path it resolves to.
+TEST(EzoProviderRuntimeTest, ASymlinkedBusPublishesTheConfiguredAndTheResolvedClaim) {
+    namespace fs = std::filesystem;
+    const fs::path dir =
+        fs::temp_directory_path() / ("ezo-claim-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
+    fs::create_directories(dir);
+    const fs::path node = dir / "i2c-7";
+    std::ofstream(node).put('\0');
+    const fs::path link = dir / "ezo-bus";
+    fs::remove(link);
+    fs::create_symlink(node, link);
+
+    auto config = make_mock_config();
+    config.bus_path = link.string();
+    const auto descriptor = anolis_provider_ezo::runtime::build_descriptor(config, config.devices.front());
+    EXPECT_EQ(descriptor.tags().at("anolis.claim"),
+              "i2c:" + link.string() + ":0x63 i2c:" + fs::canonical(node).string() + ":0x63");
+
+    fs::remove_all(dir);
+}
+
+TEST(EzoProviderRuntimeTest, AMockBusPublishesOneClaim) {
+    const auto config = make_mock_config();
+    const auto descriptor = anolis_provider_ezo::runtime::build_descriptor(config, config.devices.front());
+    EXPECT_EQ(descriptor.tags().at("anolis.claim"), "i2c:mock://unit-test-i2c:0x63");
 }
 
 TEST(EzoProviderRuntimeTest, MockModeHasNoHostRequirements) {

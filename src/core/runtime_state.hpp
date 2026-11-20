@@ -223,4 +223,10 @@ void remember_compensation(const std::string &device_id, const devices::Compensa
 void record_call_result(const std::string &device_id, const std::string &function_name, bool ok,
                         const std::string &message);
 
+/**
+ * @brief The ADPP descriptor for a configured device: identity, address and
+ * the `anolis.claim` keys for its bus address.
+ */
+Device build_descriptor(const ProviderConfig &config, const DeviceSpec &spec);
+
 }  // namespace anolis_provider_ezo::runtime
