@@ -42,9 +42,10 @@ cfg::Schema build_schema() {
     hardware.field(cfg::integer_field("sample_interval_ms")
                        .title("Expected sample interval (ms)")
                        .description("How often this provider expects its samples to be refreshed. It has "
-                                    "no sampling thread of its own — it samples when read — so set this "
-                                    "to the runtime's polling.interval_ms. Signal freshness bounds and "
-                                    "the advertised poll hint derive from it.")
+                                    "no sampling thread of its own — it samples when read. The default, "
+                                    "2500 ms, assumes the runtime polls slower than a pH read (900 ms); "
+                                    "when it polls faster, set this to the runtime's polling.interval_ms. "
+                                    "Signal freshness bounds and the advertised poll hint derive from it.")
                        .min_int(1)
                        // A day. Far above any real poll loop, and low enough
                        // that the 3x freshness derivation cannot overflow.

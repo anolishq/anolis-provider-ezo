@@ -4,6 +4,14 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- The `hardware.sample_interval_ms` help no longer contradicts its default. It
+  said to set the field to the runtime's `polling.interval_ms`, whose default is
+  500 ms, while the field defaults to 2500 ms. It now says the default assumes a
+  poll slower than a pH read (900 ms), and to set the field when the runtime
+  polls faster. The default is unchanged (#132).
+
 ## [0.7.0] - 2026-11-11
 
 0.7.0 is a minor release because a call ezo used to run can now be refused: the
