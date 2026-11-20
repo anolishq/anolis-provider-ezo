@@ -234,6 +234,9 @@ TEST(EzoProviderRuntimeTest, DevicesPublishAnOpaqueClaim) {
 // ezo#165: the runtime compares claim keys as exact strings, so a bus named
 // through a symlink also publishes the key for the path it resolves to.
 TEST(EzoProviderRuntimeTest, ASymlinkedBusPublishesTheConfiguredAndTheResolvedClaim) {
+#ifdef _WIN32
+    GTEST_SKIP() << "symlinked I2C bus paths are a Linux case; Windows needs a privilege to make a symlink";
+#else
     namespace fs = std::filesystem;
     const fs::path dir =
         fs::temp_directory_path() / ("ezo-claim-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
@@ -251,6 +254,7 @@ TEST(EzoProviderRuntimeTest, ASymlinkedBusPublishesTheConfiguredAndTheResolvedCl
               "i2c:" + link.string() + ":0x63 i2c:" + fs::canonical(node).string() + ":0x63");
 
     fs::remove_all(dir);
+#endif
 }
 
 TEST(EzoProviderRuntimeTest, AMockBusPublishesOneClaim) {
