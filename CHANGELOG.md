@@ -4,6 +4,14 @@ All notable changes to `anolis-provider-ezo` are documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+
+- `docs/health-metrics.md` documents each device's health counters. The
+  transport counters count raw I2C transactions, and only electrical failures
+  reach `io_failed`. The sample and call counters cover unusable replies. The
+  provider SDK's metrics contract had carried this as an ezo example, and no
+  longer names providers.
+
 ### Fixed
 
 - A bus that the host check passes but that fails to open at startup now
